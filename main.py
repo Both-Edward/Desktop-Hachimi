@@ -25,7 +25,7 @@ VERSION      = "1.0.0"
 APP_NAME     = "Desktop Hachimi"
 AUTHOR       = "Edward"
 AUTHOR_EMAIL = "2651671851@qq.com"
-GITHUB_URL   = "https://github.com/Edward/Desktop-Hachimi"
+GITHUB_URL   = "https://github.com/Edward-EH-Holmes/Desktop-Hachimi"
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
