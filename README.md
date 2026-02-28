@@ -23,7 +23,7 @@ Desktop Hachimi is a feature-rich desktop pet application that adds vibrancy and
 pip install Pillow pystray
 ```
 
-> **Notice**：需要 Python 3.8+
+> **Notice**: Python 3.8+ needed
 
 ---
 
