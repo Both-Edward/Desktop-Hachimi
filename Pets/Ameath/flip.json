@@ -1,0 +1,6 @@
+{
+  "move": {
+    "enabled": true,
+    "default_dir": "right"
+  }
+}

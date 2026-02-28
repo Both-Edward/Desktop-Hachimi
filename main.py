@@ -1,749 +1,1199 @@
-import tkinter as tk
-from PIL import Image, ImageTk
-import itertools
-import random
-import os
-import json
-import sys
-import platform
-from typing import List, Tuple, Dict, Optional
-import time
-
-# 软件信息
+"""
+Desktop Hachimi - Windows Desktop Pet Application
 VERSION = "1.0.0"
 APP_NAME = "Desktop Hachimi"
 AUTHOR = "Edward"
 AUTHOR_EMAIL = "2651671851@qq.com"
+"""
 
-# 配置常量
-PET_DIR = "/Pets"
-ICON_DIR = "/ico"
-DEFAULT_PET = "Ameath"
-SCALE_OPTIONS = [round(x * 0.1, 1) for x in range(1, 21)]  # 0.1 to 2.0
-TRANSPARENCY_OPTIONS = [round(x * 0.1, 1) for x in range(1, 11)]  # 0.1 to 1.0
-DEFAULT_SCALE_INDEX = 9  # 1.0x
-DEFAULT_TRANSPARENCY_INDEX = 9  # 1.0
+import sys
+import os
+import json
+import random
+import shutil
+import math
+import threading
+import time
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from PIL import Image, ImageTk, ImageSequence
+import pystray
+from pystray import MenuItem as item, Menu
 
-# 运动配置
-SPEED_X = 2
-SPEED_Y = 1.5
-MOVE_INTERVAL = 50  # ms
-JITTER_INTERVAL = 5
-JITTER = 0.1
-FOLLOW_DISTANCE = 100
-FOLLOW_SPEED = 1.0
+# ── App Info ──────────────────────────────────────────────────────────────────
+VERSION      = "1.0.0"
+APP_NAME     = "Desktop Hachimi"
+AUTHOR       = "Edward"
+AUTHOR_EMAIL = "2651671851@qq.com"
+GITHUB_URL   = "https://github.com/Edward/Desktop-Hachimi"
 
-# 状态定义
-STATE_MOVING = "moving"
-STATE_IDLE = "idle"
-STATE_DRAGGING = "dragging"
-STATE_PAUSED = "paused"
+# ── Paths ─────────────────────────────────────────────────────────────────────
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+PETS_DIR   = os.path.join(BASE_DIR, "Pets")
+ICO_DIR    = os.path.join(BASE_DIR, "ico")
+APP_ICO    = os.path.join(ICO_DIR, "Desktop Hachimi ico.ico")
+CONFIG_F   = os.path.join(BASE_DIR, "config.json")
 
-# 配置文件路径
-CONFIG_FILE = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~/.config")), "desktop_hachimi_config.json"
-)
+# ── Default Config ────────────────────────────────────────────────────────────
+DEFAULT_CFG = {
+    "pet":          "Ameath",
+    "scale":        1.0,
+    "opacity":      1.0,
+    "speed":        3,
+    "mouse_follow": False,
+    "always_on_top": True,
+    "x":            100,
+    "y":            100,
+}
 
 
-def load_config() -> Dict:
-    """加载配置"""
+def load_config():
+    if os.path.exists(CONFIG_F):
+        try:
+            with open(CONFIG_F, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            for k, v in DEFAULT_CFG.items():
+                cfg.setdefault(k, v)
+            return cfg
+        except Exception:
+            pass
+    return DEFAULT_CFG.copy()
+
+
+def save_config(cfg):
+    with open(CONFIG_F, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+# ── GIF Loader ────────────────────────────────────────────────────────────────
+def load_gif_frames(path, scale=1.0):
+    """Return list of (ImageTk.PhotoImage, duration_ms, pil_image).
+    The pil_image is kept so we can flip it on demand."""
+    frames = []
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {
-            "scale_index": DEFAULT_SCALE_INDEX,
-            "transparency_index": DEFAULT_TRANSPARENCY_INDEX,
-            "current_pet": DEFAULT_PET,
-            "click_through": True,
-            "mouse_follow": False,
-            "paused": False,
-        }
-
-
-def save_config(config: Dict):
-    """保存配置"""
-    config_dir = os.path.dirname(CONFIG_FILE)
-    if config_dir and not os.path.exists(config_dir):
-        os.makedirs(config_dir, exist_ok=True)
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
-
-
-def get_available_pets() -> List[str]:
-    """获取可用的宠物列表"""
-    pets_dir = PET_DIR
-    if not os.path.exists(pets_dir):
-        os.makedirs(pets_dir, exist_ok=True)
-        return []
-    return [d for d in os.listdir(pets_dir) if os.path.isdir(os.path.join(pets_dir, d))]
-
-
-def load_gif_frames(gif_path: str, scale: float = 1.0) -> Tuple[List[ImageTk.PhotoImage], List[int], List]:
-    """加载并缩放GIF，返回(frames, delays, pil_frames)"""
-    photoimage_frames = []
-    pil_frames = []
-    delays = []
-    
-    if not os.path.exists(gif_path):
-        # 如果文件不存在，创建一个简单的占位符
-        img = Image.new('RGBA', (100, 100), color='magenta')
-        photoimage_frames.append(ImageTk.PhotoImage(img))
-        pil_frames.append(img)
-        delays.append(100)
-        return photoimage_frames, delays, pil_frames
-    
-    try:
-        gif = Image.open(gif_path)
-        frame = None
-        for i in itertools.count():
-            try:
-                gif.seek(i)
-                frame = gif.convert("RGBA")
-                w, h = frame.size
-                new_w, new_h = int(w * scale), int(h * scale)
-                # 确保缩放后尺寸有效
-                if new_w <= 0 or new_h <= 0:
-                    new_w = max(1, new_w)
-                    new_h = max(1, new_h)
-                resized = frame.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                photoimage_frames.append(ImageTk.PhotoImage(resized))
-                pil_frames.append(resized)
-                delays.append(gif.info.get("duration", 80))
-            except EOFError:
-                break
-        # 确保至少有一帧
-        if not photoimage_frames and frame is not None:
-            photoimage_frames.append(
-                ImageTk.PhotoImage(frame.resize((100, 100), Image.Resampling.LANCZOS))
-            )
-            pil_frames.append(frame.resize((100, 100), Image.Resampling.LANCZOS))
-            delays.append(80)
+        img = Image.open(path)
+        for frame in ImageSequence.Iterator(img):
+            duration = frame.info.get("duration", 100)
+            f = frame.convert("RGBA")
+            if scale != 1.0:
+                w = max(1, int(f.width  * scale))
+                h = max(1, int(f.height * scale))
+                f = f.resize((w, h), Image.LANCZOS)
+            frames.append((ImageTk.PhotoImage(f), duration, f))
     except Exception as e:
-        print(f"加载GIF失败: {e}")
-        # 返回占位符
-        img = Image.new('RGBA', (100, 100), color='magenta')
-        photoimage_frames.append(ImageTk.PhotoImage(img))
-        pil_frames.append(img)
-        delays.append(100)
-    
-    return photoimage_frames, delays, pil_frames
+        print(f"[WARN] load_gif_frames({path}): {e}")
+    return frames
 
 
-def flip_frames(pil_frames):
-    """水平翻转所有PIL Image帧，返回PhotoImage"""
-    from PIL import Image
-    flipped = []
-    for img in pil_frames:
-        flipped_img = ImageTk.PhotoImage(img.transpose(Image.Transpose.FLIP_LEFT_RIGHT))
-        flipped.append(flipped_img)
-    return flipped
+# ── Pet Data ──────────────────────────────────────────────────────────────────
+class PetData:
+    """Represents one pet's animation assets and weights."""
 
+    def __init__(self, name, scale=1.0):
+        self.name  = name
+        self.scale = scale
+        self.dir   = os.path.join(PETS_DIR, name)
+        self._load()
 
-class DesktopPetEngine:
-    """桌面宠物核心引擎"""
-    
-    def __init__(self, pet_name: str = DEFAULT_PET):
-        self.pet_name = pet_name
-        self.scale = SCALE_OPTIONS[DEFAULT_SCALE_INDEX]
-        self.transparency = TRANSPARENCY_OPTIONS[DEFAULT_TRANSPARENCY_INDEX]
-        self.click_through = True
-        self.mouse_follow = False
-        self.paused = False
-        self.current_state = STATE_MOVING
-        
-        # 加载配置
-        config = load_config()
-        self.scale = SCALE_OPTIONS[config.get("scale_index", DEFAULT_SCALE_INDEX)]
-        self.transparency = TRANSPARENCY_OPTIONS[config.get("transparency_index", DEFAULT_TRANSPARENCY_INDEX)]
-        self.pet_name = config.get("current_pet", DEFAULT_PET)
-        self.click_through = config.get("click_through", True)
-        self.mouse_follow = config.get("mouse_follow", False)
-        
-        # 动画帧
-        self.move_frames = []
-        self.move_frames_left = []
-        self.move_delays = []
-        self.idle_gifs = []  # [(frames, delays), ...]
-        self.drag_frames = []
-        self.drag_delays = []
-        
-        self.current_frames = []
-        self.current_delays = []
-        self.frame_index = 0
-        
-        # 位置和速度
-        self.x = 100
-        self.y = 100
-        self.vx = SPEED_X
-        self.vy = SPEED_Y
-        self.w = 100
-        self.h = 100
-        
-        # 拖拽状态
-        self.dragging = False
-        self.drag_start_x = 0
-        self.drag_start_y = 0
-        self.pre_drag_state = None
-        self.pre_drag_frames = None
-        self.pre_drag_delays = None
-        
-        # 运动目标
-        self.target_x = 0
-        self.target_y = 0
-        self.last_mouse_x = 0
-        self.last_mouse_y = 0
-        
-        # 初始化
-        self.load_pet_assets()
-        self.set_initial_position()
-        
-    def load_pet_assets(self):
-        """加载宠物资源"""
-        pet_path = os.path.join(PET_DIR, self.pet_name)
-        
-        # 加载移动动画
-        move_path = os.path.join(pet_path, "move.gif")
-        self.move_frames, self.move_delays, self.move_pil_frames = load_gif_frames(move_path, self.scale)
-        self.move_frames_left = flip_frames(self.move_pil_frames)
-        
-        # 加载空闲动画
-        self.idle_gifs = []
-        idle_idx = 1
+    def _load(self):
+        s = self.scale
+        d = self.dir
+        n = self.name
+
+        # ── dynamic (active) ────────────────────────────────────────────────
+        dynamic_path = os.path.join(d, f"{n}.gif")
+        self.dynamic_frames = load_gif_frames(dynamic_path, s) if os.path.exists(dynamic_path) else []
+        self.dynamic_weight = self._read_weight("dynamic_weight", 3)
+
+        # ── drag ────────────────────────────────────────────────────────────
+        drag_path = os.path.join(d, "drag.gif")
+        self.drag_frames = load_gif_frames(drag_path, s) if os.path.exists(drag_path) else []
+
+        # ── idle ────────────────────────────────────────────────────────────
+        self.idle_variants   = self._load_variants("idle", s)
+        self.idle_weights    = self._read_multi_weight("idle_weight", len(self.idle_variants), 2)
+
+        # ── move ────────────────────────────────────────────────────────────
+        self.move_variants   = self._load_variants("move", s)
+        self.move_weights    = self._read_multi_weight("move_weight", len(self.move_variants), 1)
+        self.move_flip_info  = self._load_flip_info()
+
+    def _load_variants(self, prefix, scale):
+        """Load prefix.gif OR prefix1.gif, prefix2.gif ..."""
+        d = self.dir
+        single = os.path.join(d, f"{prefix}.gif")
+        if os.path.exists(single):
+            frames = load_gif_frames(single, scale)
+            return [frames] if frames else []
+        variants = []
+        i = 1
         while True:
-            idle_path = os.path.join(pet_path, f"idle{idle_idx}.gif" if idle_idx > 1 else "idle.gif")
-            if not os.path.exists(idle_path):
+            p = os.path.join(d, f"{prefix}{i}.gif")
+            if not os.path.exists(p):
                 break
-            frames, delays, _ = load_gif_frames(idle_path, self.scale)
-            if frames:  # 确保有帧
-                self.idle_gifs.append((frames, delays))
-            idle_idx += 1
-        
-        # 如果没有idle动画，使用移动动画作为备选
-        if not self.idle_gifs:
-            self.idle_gifs.append((self.move_frames, self.move_delays))
-        
-        # 加载拖拽动画
-        drag_path = os.path.join(pet_path, "drag.gif")
-        self.drag_frames, self.drag_delays, _ = load_gif_frames(drag_path, self.scale)
-        
-        # 设置当前帧
-        if not self.paused:
-            self.current_frames = self.move_frames
-            self.current_delays = self.move_delays
+            variants.append(load_gif_frames(p, scale))
+            i += 1
+        return variants
+
+    def _load_flip_info(self):
+        """Read flip.json if present."""
+        p = os.path.join(self.dir, "flip.json")
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _read_weight(self, key, default):
+        p = os.path.join(self.dir, "weights.json")
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f).get(key, default)
+            except Exception:
+                pass
+        return default
+
+    def _read_multi_weight(self, key, count, default):
+        p = os.path.join(self.dir, "weights.json")
+        if os.path.exists(p):
+            try:
+                data = json.load(open(p, "r", encoding="utf-8"))
+                v = data.get(key, None)
+                if isinstance(v, list) and len(v) == count:
+                    return v
+            except Exception:
+                pass
+        return [default] * max(count, 1)
+
+    def pick_idle(self):
+        """Return a random idle frame list."""
+        if not self.idle_variants:
+            return self.dynamic_frames or []
+        return random.choices(self.idle_variants, weights=self.idle_weights, k=1)[0]
+
+    def pick_move(self):
+        """Return a random move frame list."""
+        if not self.move_variants:
+            return self.dynamic_frames or []
+        return random.choices(self.move_variants, weights=self.move_weights, k=1)[0]
+
+    def should_flip(self, variant_name, going_right):
+        """Determine if the sprite should be horizontally flipped."""
+        info = self.move_flip_info.get(variant_name, {})
+        if not info.get("enabled", False):
+            return False
+        default_dir = info.get("default_dir", "left")
+        if default_dir == "left":
+            # flip when going RIGHT
+            return going_right
         else:
-            self.current_frames, self.current_delays = random.choice(self.idle_gifs)
-        
-        # 更新尺寸
-        if self.move_frames:
-            self.w = self.move_frames[0].width()
-            self.h = self.move_frames[0].height()
-    
-    def set_initial_position(self):
-        """设置初始位置"""
-        # 尝试获取屏幕尺寸
-        try:
-            root_temp = tk.Tk()
-            root_temp.withdraw()
-            screen_w = root_temp.winfo_screenwidth()
-            screen_h = root_temp.winfo_screenheight()
-            root_temp.destroy()
-            
-            self.x = random.randint(100, screen_w - self.w - 100)
-            self.y = random.randint(100, screen_h - self.h - 100)
-        except:
-            # 默认位置
-            self.x = 100
-            self.y = 100
-    
-    def update_scale(self, scale_index: int):
-        """更新缩放"""
-        self.scale = SCALE_OPTIONS[scale_index]
-        self.load_pet_assets()
-        
-        # 保存配置
-        config = load_config()
-        config["scale_index"] = scale_index
-        save_config(config)
-    
-    def update_transparency(self, transparency_index: int):
-        """更新透明度"""
-        self.transparency = TRANSPARENCY_OPTIONS[transparency_index]
-        
-        # 保存配置
-        config = load_config()
-        config["transparency_index"] = transparency_index
-        save_config(config)
-    
-    def toggle_click_through(self):
-        """切换鼠标穿透"""
-        self.click_through = not self.click_through
-        
-        # 保存配置
-        config = load_config()
-        config["click_through"] = self.click_through
-        save_config(config)
-    
-    def toggle_mouse_follow(self):
-        """切换鼠标跟随"""
-        self.mouse_follow = not self.mouse_follow
-        
-        # 保存配置
-        config = load_config()
-        config["mouse_follow"] = self.mouse_follow
-        save_config(config)
-    
-    def change_pet(self, pet_name: str):
-        """更换宠物"""
-        if pet_name in get_available_pets():
-            self.pet_name = pet_name
-            self.load_pet_assets()
-            
-            # 保存配置
-            config = load_config()
-            config["current_pet"] = pet_name
-            save_config(config)
-    
-    def toggle_pause(self):
-        """切换暂停/开始"""
-        self.paused = not self.paused
-        
-        if self.paused:
-            self.current_state = STATE_PAUSED
-            # 切换到空闲动画
-            frames, delays = random.choice(self.idle_gifs)
-            self.current_frames = frames
-            self.current_delays = delays
-        else:
-            self.current_state = STATE_MOVING
-            # 切换到移动动画
-            self.current_frames = self.move_frames if self.vx > 0 else self.move_frames_left
-            self.current_delays = self.move_delays
-        
-        # 保存配置
-        config = load_config()
-        config["paused"] = self.paused
-        save_config(config)
-    
-    def start_drag(self, event_x: int, event_y: int):
-        """开始拖拽"""
-        if self.click_through:
-            return
-        self.dragging = True
-        self.drag_start_x = event_x
-        self.drag_start_y = event_y
-        
-        # 保存当前状态
-        self.pre_drag_state = self.current_state
-        self.pre_drag_frames = self.current_frames
-        self.pre_drag_delays = self.current_delays
-        
-        # 切换到拖拽动画
-        self.current_state = STATE_DRAGGING
-        self.current_frames = self.drag_frames
-        self.current_delays = self.drag_delays
-        self.frame_index = 0
-    
-    def update_drag(self, root_x: int, root_y: int):
-        """更新拖拽位置"""
-        if self.dragging:
-            self.x = root_x - self.drag_start_x
-            self.y = root_y - self.drag_start_y
-    
-    def stop_drag(self):
-        """停止拖拽"""
-        if self.dragging:
-            self.dragging = False
-            
-            # 恢复之前的状态
-            if self.pre_drag_state == STATE_PAUSED:
-                self.toggle_pause()  # 如果之前是暂停状态，需要再次暂停
+            # flip when going LEFT
+            return not going_right
+
+
+# ── Pet Window ────────────────────────────────────────────────────────────────
+STATE_DYNAMIC = "dynamic"
+STATE_IDLE    = "idle"
+STATE_MOVE    = "move"
+STATE_DRAG    = "drag"
+
+
+class PetWindow:
+    def __init__(self, app):
+        self.app = app
+        self.cfg = app.cfg
+
+        self.root = tk.Tk()
+        self.root.title(APP_NAME)
+        self.root.overrideredirect(True)
+        self.root.attributes("-transparentcolor", "black")
+        self.root.attributes("-topmost", self.cfg["always_on_top"])
+        self.root.configure(bg="black")
+        self.root.attributes("-alpha", self.cfg["opacity"])
+
+        # set icon if possible
+        if os.path.exists(APP_ICO):
+            try:
+                self.root.iconbitmap(APP_ICO)
+            except Exception:
+                pass
+
+        self.canvas = tk.Canvas(self.root, bg="black", highlightthickness=0)
+        self.canvas.pack()
+        self.img_item = self.canvas.create_image(0, 0, anchor="nw")
+
+        # state
+        self.state        = STATE_IDLE
+        self.prev_state   = STATE_IDLE
+        self._frame_idx   = 0
+        self._after_id    = None
+        self.current_frames = []
+        self._current_move_key = None   # flip.json key for current move variant
+        self._flipped_cache = {}        # key -> list of (PhotoImage, duration)
+
+        # movement
+        self.vx = 0.0
+        self.vy = 0.0
+        self.going_right = True
+        self.move_target  = None      # (tx, ty) when following mouse
+        self._move_timer  = None
+
+        # drag
+        self._drag_ox = 0
+        self._drag_oy = 0
+
+        # position
+        self.x = float(self.cfg.get("x", 100))
+        self.y = float(self.cfg.get("y", 100))
+
+        self.pet_data: PetData = None
+        self.load_pet()
+        self.position_window()
+        self.bind_events()
+        self.start_state_machine()
+
+    # ── Pet Loading ────────────────────────────────────────────────────────
+    def load_pet(self):
+        name  = self.cfg["pet"]
+        scale = self.cfg["scale"]
+        self.pet_data = PetData(name, scale)
+        self._enter_state(STATE_IDLE)
+
+    def reload_pet(self):
+        """Called when pet / scale / etc changes."""
+        if self._after_id:
+            self.root.after_cancel(self._after_id)
+            self._after_id = None
+        if self._move_timer:
+            self.root.after_cancel(self._move_timer)
+            self._move_timer = None
+        self._flipped_cache.clear()
+        self.load_pet()
+
+    # ── State Machine ──────────────────────────────────────────────────────
+    def start_state_machine(self):
+        self._state_tick()
+
+    def _state_tick(self):
+        """Periodically decide whether to switch state."""
+        if self.state not in (STATE_DRAG,):
+            if self.cfg.get("mouse_follow") and self.state != STATE_DRAG:
+                self._follow_mouse_logic()
             else:
-                self.current_state = self.pre_drag_state
-                self.current_frames = self.pre_drag_frames or self.move_frames
-                self.current_delays = self.pre_drag_delays or self.move_delays
-                self.frame_index = 0
-            
-            # 重置拖拽状态
-            self.pre_drag_state = None
-            self.pre_drag_frames = None
-            self.pre_drag_delays = None
-    
-    def get_current_frame(self) -> ImageTk.PhotoImage:
-        """获取当前帧"""
+                self._autonomous_logic()
+        self.root.after(5000, self._state_tick)
+
+    def _autonomous_logic(self):
+        """Randomly switch between dynamic/idle/move."""
+        pd = self.pet_data
+        dw = pd.dynamic_weight
+        iw = sum(pd.idle_weights)
+        mw = sum(pd.move_weights)
+        total = dw + iw + mw
+        r = random.random() * total
+        if r < dw:
+            self._enter_state(STATE_DYNAMIC)
+        elif r < dw + iw:
+            self._enter_state(STATE_IDLE)
+        else:
+            self._enter_state(STATE_MOVE)
+            # random direction
+            angle = random.uniform(0, 2 * math.pi)
+            speed = self.cfg.get("speed", 3)
+            self.vx = math.cos(angle) * speed
+            self.vy = math.sin(angle) * speed
+            self.going_right = self.vx >= 0
+            duration = random.randint(3, 8)
+            self.move_target = None
+            if self._move_timer:
+                self.root.after_cancel(self._move_timer)
+            self._move_timer = self.root.after(duration * 1000, self._stop_moving)
+
+    def _stop_moving(self):
+        if self.state == STATE_MOVE:
+            self._enter_state(STATE_IDLE)
+
+    def _follow_mouse_logic(self):
+        mx = self.root.winfo_pointerx()
+        my = self.root.winfo_pointery()
+        pw = self.canvas.winfo_width()
+        ph = self.canvas.winfo_height()
+        cx = self.x + pw / 2
+        cy = self.y + ph / 2
+        dist = math.hypot(mx - cx, my - cy)
+        if dist < 20:
+            if self.state != STATE_DYNAMIC:
+                self._enter_state(STATE_DYNAMIC)
+        else:
+            if self.state == STATE_DYNAMIC:
+                self.root.after(1000, lambda: self._enter_state(STATE_MOVE) if self.cfg.get("mouse_follow") else None)
+            elif self.state != STATE_MOVE:
+                self._enter_state(STATE_MOVE)
+            speed = self.cfg.get("speed", 3)
+            dx, dy = mx - cx, my - cy
+            d = max(dist, 1)
+            self.vx = dx / d * speed
+            self.vy = dy / d * speed
+            self.going_right = self.vx >= 0
+            self.move_target = (mx, my)
+
+    # ── State Entry ────────────────────────────────────────────────────────
+    def _enter_state(self, state):
+        self.state = state
+        pd = self.pet_data
+        self._current_move_key = None
+        if state == STATE_DYNAMIC:
+            self.current_frames = pd.dynamic_frames or pd.pick_idle()
+        elif state == STATE_IDLE:
+            self.current_frames = pd.pick_idle()
+            self.vx = self.vy = 0
+        elif state == STATE_MOVE:
+            move_count = len(pd.move_variants)
+            if not pd.move_variants:
+                self.current_frames = pd.dynamic_frames or pd.pick_idle()
+            else:
+                idx = random.choices(range(move_count), weights=pd.move_weights, k=1)[0]
+                self.current_frames = pd.move_variants[idx]
+                # determine flip.json key for this variant
+                self._current_move_key = "move" if move_count == 1 else f"move{idx + 1}"
+        elif state == STATE_DRAG:
+            self.current_frames = pd.drag_frames or pd.dynamic_frames or pd.pick_idle()
+        self._frame_idx = 0
+        if self._after_id:
+            self.root.after_cancel(self._after_id)
+        self._animate()
+
+    # ── Animation ──────────────────────────────────────────────────────────
+    def _get_flipped_frames(self, key):
+        """Return (and cache) horizontally-flipped PhotoImages for a move variant."""
+        if key not in self._flipped_cache:
+            flipped = []
+            for photo, duration, pil_img in self.current_frames:
+                f_flip = pil_img.transpose(Image.FLIP_LEFT_RIGHT)
+                flipped.append((ImageTk.PhotoImage(f_flip), duration))
+            self._flipped_cache[key] = flipped
+        return self._flipped_cache[key]
+
+    def _animate(self):
         if not self.current_frames:
-            # 返回占位符
-            img = Image.new('RGBA', (100, 100), color='magenta')
-            return ImageTk.PhotoImage(img)
-        return self.current_frames[self.frame_index]
-    
-    def next_frame(self):
-        """切换到下一帧"""
-        if self.current_frames:
-            self.frame_index = (self.frame_index + 1) % len(self.current_frames)
-    
-    def update_position(self, mouse_x: int = None, mouse_y: int = None):
-        """更新位置（仅当不在拖拽状态时）"""
-        if self.dragging or self.paused:
+            self._after_id = self.root.after(100, self._animate)
             return
-        
-        # 更新鼠标位置（如果提供了的话）
-        if mouse_x is not None and mouse_y is not None:
-            self.last_mouse_x = mouse_x
-            self.last_mouse_y = mouse_y
-        
-        # 根据模式更新位置
-        if self.mouse_follow and mouse_x is not None and mouse_y is not None:
-            # 鼠标跟随模式
-            dx = mouse_x - FOLLOW_DISTANCE - self.x
-            dy = mouse_y - FOLLOW_DISTANCE - self.y
-            dist = max(1, (dx*dx + dy*dy)**0.5)
-            
-            # 限制速度
-            speed_factor = min(FOLLOW_SPEED, dist / 10)  # 随距离调整速度
-            self.vx = (dx / dist) * speed_factor
-            self.vy = (dy / dist) * speed_factor
-            
-            # 添加随机抖动
-            if random.random() < 0.3:  # 30% 概率添加抖动
-                self.vx += random.uniform(-JITTER, JITTER)
-                self.vy += random.uniform(-JITTER, JITTER)
+        idx = self._frame_idx % len(self.current_frames)
+
+        # Determine whether to show flipped frame
+        need_flip = (
+            self.state == STATE_MOVE
+            and self._current_move_key is not None
+            and self.pet_data.should_flip(self._current_move_key, self.going_right)
+        )
+
+        if need_flip:
+            frames = self._get_flipped_frames(self._current_move_key)
+            photo, duration = frames[idx % len(frames)]
         else:
-            # 自由移动模式 - 随机游走
-            # 添加随机抖动
-            if random.random() < 0.1:  # 10% 概率改变方向
-                self.vx = random.choice([-SPEED_X, SPEED_X]) + random.uniform(-JITTER, JITTER)
-                self.vy = random.choice([-SPEED_Y, SPEED_Y]) + random.uniform(-JITTER, JITTER)
-            else:
-                self.vx += random.uniform(-JITTER, JITTER)
-                self.vy += random.uniform(-JITTER, JITTER)
-        
-        # 应用移动
-        self.x += self.vx
-        self.y += self.vy
-        
-        # 检查边界并反弹
+            photo, duration, *_ = self.current_frames[idx]
+
+        w = photo.width()
+        h = photo.height()
+        self.canvas.config(width=w, height=h)
+        self.canvas.itemconfig(self.img_item, image=photo)
+        self._frame_idx = (idx + 1) % len(self.current_frames)
+        self._after_id = self.root.after(duration, self._animate)
+
+    # ── Movement Loop ──────────────────────────────────────────────────────
+    def _movement_loop(self):
+        if self.state == STATE_MOVE:
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            pw = max(self.canvas.winfo_width(), 1)
+            ph = max(self.canvas.winfo_height(), 1)
+
+            self.x += self.vx
+            self.y += self.vy
+
+            # bounce off screen edges
+            if self.x < 0:
+                self.x = 0; self.vx = abs(self.vx); self.going_right = True
+            if self.x + pw > sw:
+                self.x = sw - pw; self.vx = -abs(self.vx); self.going_right = False
+            if self.y < 0:
+                self.y = 0; self.vy = abs(self.vy)
+            if self.y + ph > sh:
+                self.y = sh - ph; self.vy = -abs(self.vy)
+
+            self.position_window()
+        self.root.after(16, self._movement_loop)
+
+    # ── Window Helpers ─────────────────────────────────────────────────────
+    def position_window(self):
+        self.root.geometry(f"+{int(self.x)}+{int(self.y)}")
+
+    # ── Drag Bindings ──────────────────────────────────────────────────────
+    def bind_events(self):
+        self.canvas.bind("<ButtonPress-1>",   self._on_drag_start)
+        self.canvas.bind("<B1-Motion>",       self._on_drag_motion)
+        self.canvas.bind("<ButtonRelease-1>", self._on_drag_end)
+
+    def _on_drag_start(self, event):
+        self.prev_state = self.state
+        self._drag_ox = event.x_root - self.x
+        self._drag_oy = event.y_root - self.y
+        self._enter_state(STATE_DRAG)
+
+    def _on_drag_motion(self, event):
+        self.x = event.x_root - self._drag_ox
+        self.y = event.y_root - self._drag_oy
+        self.position_window()
+
+    def _on_drag_end(self, event):
+        self._enter_state(self.prev_state if self.prev_state != STATE_DRAG else STATE_IDLE)
+
+    # ── Public API ─────────────────────────────────────────────────────────
+    def set_pet(self, name):
+        self.cfg["pet"] = name
+        save_config(self.cfg)
+        self.reload_pet()
+
+    def set_scale(self, scale):
+        self.cfg["scale"] = scale
+        save_config(self.cfg)
+        self.reload_pet()
+
+    def set_opacity(self, opacity):
+        self.cfg["opacity"] = opacity
+        save_config(self.cfg)
+        self.root.attributes("-alpha", opacity)
+
+    def set_speed(self, speed):
+        self.cfg["speed"] = speed
+        save_config(self.cfg)
+
+    def set_mouse_follow(self, val):
+        self.cfg["mouse_follow"] = val
+        save_config(self.cfg)
+        if not val and self.state == STATE_MOVE:
+            self._enter_state(STATE_IDLE)
+
+    def set_always_on_top(self, val):
+        self.cfg["always_on_top"] = val
+        save_config(self.cfg)
+        self.root.attributes("-topmost", val)
+
+    def save_position(self):
+        self.cfg["x"] = int(self.x)
+        self.cfg["y"] = int(self.y)
+        save_config(self.cfg)
+
+    def run(self):
+        self._movement_loop()
+        self.root.mainloop()
+
+    def destroy(self):
+        self.save_position()
+        self.root.destroy()
+
+
+# ── Pet Creator Dialog ────────────────────────────────────────────────────────
+class PetCreatorDialog:
+    def __init__(self, parent_root):
+        self.win = tk.Toplevel(parent_root)
+        self.win.title("创建桌宠")
+        self.win.resizable(False, False)
+        self.win.grab_set()
+
+        self._files = {
+            "icon":    tk.StringVar(),
+            "dynamic": tk.StringVar(),
+            "drag":    tk.StringVar(),
+        }
+        self._idle_entries  = []
+        self._move_entries  = []
+
+        self._build_ui()
+
+    def _build_ui(self):
+        win = self.win
+        pad = {"padx": 8, "pady": 4}
+
+        # ── Name ──────────────────────────────────────────────────────────
+        tk.Label(win, text="桌宠名:").grid(row=0, column=0, sticky="e", **pad)
+        self.name_var = tk.StringVar()
+        tk.Entry(win, textvariable=self.name_var, width=24).grid(row=0, column=1, columnspan=2, sticky="w", **pad)
+
+        # ── Icon ──────────────────────────────────────────────────────────
+        tk.Label(win, text="桌宠图标(.ico):").grid(row=1, column=0, sticky="e", **pad)
+        tk.Entry(win, textvariable=self._files["icon"], width=24).grid(row=1, column=1, **pad)
+        tk.Button(win, text="浏览", command=lambda: self._browse("icon", [("ICO","*.ico")])).grid(row=1, column=2, **pad)
+
+        # ── Dynamic ───────────────────────────────────────────────────────
+        tk.Label(win, text="动感状态(.gif):").grid(row=2, column=0, sticky="e", **pad)
+        tk.Entry(win, textvariable=self._files["dynamic"], width=24).grid(row=2, column=1, **pad)
+        tk.Button(win, text="浏览", command=lambda: self._browse("dynamic", [("GIF","*.gif")])).grid(row=2, column=2, **pad)
+        tk.Label(win, text="权重:").grid(row=2, column=3, **pad)
+        self.dyn_weight = tk.IntVar(value=3)
+        tk.Spinbox(win, from_=1, to=99, textvariable=self.dyn_weight, width=4).grid(row=2, column=4, **pad)
+
+        # ── Drag ──────────────────────────────────────────────────────────
+        tk.Label(win, text="拖拽状态(.gif):").grid(row=3, column=0, sticky="e", **pad)
+        tk.Entry(win, textvariable=self._files["drag"], width=24).grid(row=3, column=1, **pad)
+        tk.Button(win, text="浏览", command=lambda: self._browse("drag", [("GIF","*.gif")])).grid(row=3, column=2, **pad)
+
+        # ── Idle ──────────────────────────────────────────────────────────
+        tk.Label(win, text="─── 非移动状态(idle) ───").grid(row=4, column=0, columnspan=5, **pad)
+        self._idle_frame = tk.Frame(win)
+        self._idle_frame.grid(row=5, column=0, columnspan=5, **pad)
+        self._add_idle_row()
+        tk.Button(win, text="+ 添加idle图", command=self._add_idle_row).grid(row=6, column=0, columnspan=2, **pad)
+
+        # ── Move ──────────────────────────────────────────────────────────
+        tk.Label(win, text="─── 移动状态(move) ───").grid(row=7, column=0, columnspan=5, **pad)
+        self._move_frame = tk.Frame(win)
+        self._move_frame.grid(row=8, column=0, columnspan=5, **pad)
+        self._add_move_row()
+        tk.Button(win, text="+ 添加move图", command=self._add_move_row).grid(row=9, column=0, columnspan=2, **pad)
+
+        # ── Buttons ───────────────────────────────────────────────────────
+        tk.Button(win, text="保存", command=self._save, bg="#4caf50", fg="white").grid(row=10, column=3, **pad)
+        tk.Button(win, text="取消", command=self.win.destroy).grid(row=10, column=4, **pad)
+
+    def _browse(self, key, filetypes):
+        path = filedialog.askopenfilename(filetypes=filetypes)
+        if path:
+            self._files[key].set(path)
+
+    def _browse_var(self, var, filetypes):
+        path = filedialog.askopenfilename(filetypes=filetypes)
+        if path:
+            var.set(path)
+
+    def _add_idle_row(self):
+        f = self._idle_frame
+        row = len(self._idle_entries)
+        path_var   = tk.StringVar()
+        weight_var = tk.IntVar(value=2)
+        tk.Label(f, text=f"idle {row+1}:").grid(row=row, column=0)
+        tk.Entry(f, textvariable=path_var, width=24).grid(row=row, column=1)
+        tk.Button(f, text="浏览", command=lambda v=path_var: self._browse_var(v, [("GIF","*.gif")])).grid(row=row, column=2)
+        tk.Label(f, text="权重:").grid(row=row, column=3)
+        tk.Spinbox(f, from_=1, to=99, textvariable=weight_var, width=4).grid(row=row, column=4)
+        self._idle_entries.append((path_var, weight_var))
+
+    def _add_move_row(self):
+        f = self._move_frame
+        row = len(self._move_entries)
+        path_var    = tk.StringVar()
+        weight_var  = tk.IntVar(value=1)
+        flip_var    = tk.BooleanVar(value=False)
+        dir_var     = tk.StringVar(value="left")
+        tk.Label(f, text=f"move {row+1}:").grid(row=row, column=0)
+        tk.Entry(f, textvariable=path_var, width=22).grid(row=row, column=1)
+        tk.Button(f, text="浏览", command=lambda v=path_var: self._browse_var(v, [("GIF","*.gif")])).grid(row=row, column=2)
+        tk.Label(f, text="权重:").grid(row=row, column=3)
+        tk.Spinbox(f, from_=1, to=99, textvariable=weight_var, width=4).grid(row=row, column=4)
+        tk.Checkbutton(f, text="方向反转", variable=flip_var).grid(row=row, column=5)
+        tk.Label(f, text="默认方向:").grid(row=row, column=6)
+        ttk.Combobox(f, textvariable=dir_var, values=["left","right"], width=5, state="readonly").grid(row=row, column=7)
+        self._move_entries.append((path_var, weight_var, flip_var, dir_var))
+
+    def _save(self):
+        name = self.name_var.get().strip()
+        if not name:
+            messagebox.showerror("错误", "请填写桌宠名"); return
+
+        pet_dir = os.path.join(PETS_DIR, name)
+        os.makedirs(pet_dir, exist_ok=True)
+
+        def copy(src, dst):
+            if src and os.path.exists(src):
+                shutil.copy2(src, dst)
+
+        # icon
+        copy(self._files["icon"].get(), os.path.join(pet_dir, f"{name}.ico"))
+        # dynamic
+        copy(self._files["dynamic"].get(), os.path.join(pet_dir, f"{name}.gif"))
+        # drag
+        copy(self._files["drag"].get(), os.path.join(pet_dir, "drag.gif"))
+
+        # idle
+        idle_weights = {}
+        valid_idle = [(p.get(), w.get()) for p, w in self._idle_entries if p.get() and os.path.exists(p.get())]
+        if len(valid_idle) == 1:
+            copy(valid_idle[0][0], os.path.join(pet_dir, "idle.gif"))
+            idle_weights = {"idle_weight": [valid_idle[0][1]]}
+        else:
+            for i, (p, w) in enumerate(valid_idle, 1):
+                copy(p, os.path.join(pet_dir, f"idle{i}.gif"))
+            idle_weights = {"idle_weight": [w for _, w in valid_idle]}
+
+        # move
+        move_weights = {}
+        flip_info    = {}
+        valid_move = [(p.get(), w.get(), fl.get(), dr.get())
+                      for p, w, fl, dr in self._move_entries if p.get() and os.path.exists(p.get())]
+        if len(valid_move) == 1:
+            copy(valid_move[0][0], os.path.join(pet_dir, "move.gif"))
+            move_weights = {"move_weight": [valid_move[0][1]]}
+            if valid_move[0][2]:
+                flip_info["move"] = {"enabled": True, "default_dir": valid_move[0][3]}
+        else:
+            for i, (p, w, fl, dr) in enumerate(valid_move, 1):
+                copy(p, os.path.join(pet_dir, f"move{i}.gif"))
+                if fl:
+                    flip_info[f"move{i}"] = {"enabled": True, "default_dir": dr}
+            move_weights = {"move_weight": [w for _, w, *_ in valid_move]}
+
+        # weights.json
+        weights = {
+            "dynamic_weight": self.dyn_weight.get(),
+            **idle_weights,
+            **move_weights,
+        }
+        with open(os.path.join(pet_dir, "weights.json"), "w", encoding="utf-8") as f:
+            json.dump(weights, f, indent=2)
+
+        # flip.json
+        if flip_info:
+            with open(os.path.join(pet_dir, "flip.json"), "w", encoding="utf-8") as f:
+                json.dump(flip_info, f, indent=2)
+
+        messagebox.showinfo("成功", f"桌宠 '{name}' 已保存！")
+        self.win.destroy()
+
+
+# ── Weight Editor Dialog ──────────────────────────────────────────────────────
+class WeightEditorDialog:
+    """
+    Dialog for editing state weights of the current pet.
+    Edits:
+      - dynamic_weight  (single int)
+      - idle_weight     (list of ints, one per idle variant)
+      - move_weight     (list of ints, one per move variant)
+    Writes changes back to Pets/<name>/weights.json and hot-reloads the pet.
+    """
+
+    def __init__(self, parent_root, pet_win: "PetWindow"):
+        self.pet_win = pet_win
+        self.win = tk.Toplevel(parent_root)
+        self.win.title("调整状态权重")
+        self.win.resizable(False, False)
+        self.win.grab_set()
+        self._build_ui()
+
+    def _build_ui(self):
+        win  = self.win
+        pd   = self.pet_win.pet_data
+        pad  = {"padx": 10, "pady": 5}
+
+        # ── Title ─────────────────────────────────────────────────────────
+        tk.Label(win, text=f"桌宠：{pd.name}", font=("Helvetica", 12, "bold")).grid(
+            row=0, column=0, columnspan=3, pady=(10, 4))
+
+        tk.Label(win, text="说明：权重为正整数，值越大该状态出现概率越高。",
+                 fg="gray").grid(row=1, column=0, columnspan=3, padx=10, pady=(0, 8))
+
+        row = 2
+
+        # ── Dynamic weight ────────────────────────────────────────────────
+        tk.Label(win, text="动感状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+        self._dyn_var = tk.IntVar(value=pd.dynamic_weight)
+        tk.Spinbox(win, from_=1, to=999, textvariable=self._dyn_var, width=6).grid(
+            row=row, column=1, sticky="w", **pad)
+        row += 1
+
+        # ── Separator ─────────────────────────────────────────────────────
+        ttk.Separator(win, orient="horizontal").grid(
+            row=row, column=0, columnspan=3, sticky="ew", padx=10, pady=4)
+        row += 1
+
+        # ── Idle weights ──────────────────────────────────────────────────
+        self._idle_vars = []
+        idle_count = len(pd.idle_variants)
+        if idle_count == 0:
+            tk.Label(win, text="非移动状态：（无图）", fg="gray").grid(
+                row=row, column=0, columnspan=3, **pad)
+            row += 1
+        elif idle_count == 1:
+            tk.Label(win, text="非移动状态 权重：", anchor="e").grid(
+                row=row, column=0, sticky="e", **pad)
+            v = tk.IntVar(value=pd.idle_weights[0] if pd.idle_weights else 2)
+            tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(
+                row=row, column=1, sticky="w", **pad)
+            self._idle_vars.append(v)
+            row += 1
+        else:
+            tk.Label(win, text="非移动状态（多图）：", font=("Helvetica", 9, "bold")).grid(
+                row=row, column=0, columnspan=3, sticky="w", padx=10)
+            row += 1
+            for i in range(idle_count):
+                tk.Label(win, text=f"  idle{i+1} 权重：", anchor="e").grid(
+                    row=row, column=0, sticky="e", **pad)
+                w_val = pd.idle_weights[i] if i < len(pd.idle_weights) else 2
+                v = tk.IntVar(value=w_val)
+                tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(
+                    row=row, column=1, sticky="w", **pad)
+                self._idle_vars.append(v)
+                row += 1
+
+        # ── Separator ─────────────────────────────────────────────────────
+        ttk.Separator(win, orient="horizontal").grid(
+            row=row, column=0, columnspan=3, sticky="ew", padx=10, pady=4)
+        row += 1
+
+        # ── Move weights ──────────────────────────────────────────────────
+        self._move_vars = []
+        move_count = len(pd.move_variants)
+        if move_count == 0:
+            tk.Label(win, text="移动状态：（无图）", fg="gray").grid(
+                row=row, column=0, columnspan=3, **pad)
+            row += 1
+        elif move_count == 1:
+            tk.Label(win, text="移动状态 权重：", anchor="e").grid(
+                row=row, column=0, sticky="e", **pad)
+            v = tk.IntVar(value=pd.move_weights[0] if pd.move_weights else 1)
+            tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(
+                row=row, column=1, sticky="w", **pad)
+            self._move_vars.append(v)
+            row += 1
+        else:
+            tk.Label(win, text="移动状态（多图）：", font=("Helvetica", 9, "bold")).grid(
+                row=row, column=0, columnspan=3, sticky="w", padx=10)
+            row += 1
+            for i in range(move_count):
+                tk.Label(win, text=f"  move{i+1} 权重：", anchor="e").grid(
+                    row=row, column=0, sticky="e", **pad)
+                w_val = pd.move_weights[i] if i < len(pd.move_weights) else 1
+                v = tk.IntVar(value=w_val)
+                tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(
+                    row=row, column=1, sticky="w", **pad)
+                self._move_vars.append(v)
+                row += 1
+
+        # ── Preview label ─────────────────────────────────────────────────
+        self._preview_label = tk.Label(win, text="", fg="#555", font=("Courier", 8))
+        self._preview_label.grid(row=row, column=0, columnspan=3, padx=10, pady=(4, 0))
+        row += 1
+        self._update_preview()
+
+        # bind all spinboxes to refresh preview
+        for var in [self._dyn_var] + self._idle_vars + self._move_vars:
+            var.trace_add("write", lambda *_: self._update_preview())
+
+        # ── Buttons ───────────────────────────────────────────────────────
+        btn_frame = tk.Frame(win)
+        btn_frame.grid(row=row, column=0, columnspan=3, pady=10)
+        tk.Button(btn_frame, text="保存并应用", bg="#4caf50", fg="white",
+                  command=self._save).pack(side="left", padx=8)
+        tk.Button(btn_frame, text="取消",
+                  command=self.win.destroy).pack(side="left", padx=8)
+
+    def _safe_int(self, var, fallback=1):
         try:
-            root_temp = tk.Tk()
-            root_temp.withdraw()
-            screen_w = root_temp.winfo_screenwidth()
-            screen_h = root_temp.winfo_screenheight()
-            root_temp.destroy()
-            
-            # 左右边界
-            if self.x <= 0:
-                self.x = 0
-                self.vx = abs(self.vx)  # 向右反弹
-                # 切换到右侧动画
-                self.current_frames = self.move_frames
-                self.current_delays = self.move_delays
-                self.frame_index = 0
-            elif self.x + self.w >= screen_w:
-                self.x = screen_w - self.w
-                self.vx = -abs(self.vx)  # 向左反弹
-                # 切换到左侧动画
-                self.current_frames = self.move_frames_left
-                self.current_delays = self.move_delays
-                self.frame_index = 0
-            
-            # 上下边界
-            if self.y <= 0:
-                self.y = 0
-                self.vy = abs(self.vy)  # 向下反弹
-            elif self.y + self.h >= screen_h:
-                self.y = screen_h - self.h
-                self.vy = -abs(self.vy)  # 向上反弹
-        except:
-            # 如果无法获取屏幕尺寸，使用默认值
-            if self.x <= 0 or self.x >= 800 - self.w:
-                self.vx = -self.vx
-            if self.y <= 0 or self.y >= 600 - self.h:
-                self.vy = -self.vy
-    
-    def get_position(self) -> Tuple[float, float]:
-        """获取当前位置"""
-        return self.x, self.y
-    
-    def get_size(self) -> Tuple[int, int]:
-        """获取尺寸"""
-        return self.w, self.h
+            v = var.get()
+            return max(1, int(v))
+        except Exception:
+            return fallback
+
+    def _update_preview(self):
+        """Show approximate probabilities."""
+        dw = self._safe_int(self._dyn_var)
+        iw = sum(self._safe_int(v) for v in self._idle_vars) if self._idle_vars else 0
+        mw = sum(self._safe_int(v) for v in self._move_vars) if self._move_vars else 0
+        total = dw + iw + mw
+        if total == 0:
+            self._preview_label.config(text="")
+            return
+        lines = [
+            f"动感 {dw/total*100:.1f}%",
+            f"非移动 {iw/total*100:.1f}%",
+            f"移动 {mw/total*100:.1f}%",
+        ]
+        self._preview_label.config(text="  概率预览：" + "  |  ".join(lines))
+
+    def _save(self):
+        pd   = self.pet_win.pet_data
+        path = os.path.join(pd.dir, "weights.json")
+
+        # read existing to preserve any extra keys
+        existing = {}
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except Exception:
+                pass
+
+        existing["dynamic_weight"] = self._safe_int(self._dyn_var)
+        if self._idle_vars:
+            existing["idle_weight"] = [self._safe_int(v) for v in self._idle_vars]
+        if self._move_vars:
+            existing["move_weight"] = [self._safe_int(v) for v in self._move_vars]
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+
+        # hot-reload the pet so new weights take effect immediately
+        self.pet_win.reload_pet()
+        messagebox.showinfo("成功", "权重已保存并应用！", parent=self.win)
+        self.win.destroy()
 
 
-# Windows特定实现
-if platform.system() == "Windows":
-    import ctypes
-    from ctypes import wintypes
-    import winreg
-    from pystray import MenuItem
-    
-    # Windows API 常量
-    HWND_TOPMOST = -1
-    SWP_NOSIZE = 0x0001
-    SWP_NOMOVE = 0x0002
-    SWP_NOACTIVATE = 0x0010
-    SWP_SHOWWINDOW = 0x0040
-    GWL_EXSTYLE = -20
-    WS_EX_LAYERED = 0x00080000
-    WS_EX_TRANSPARENT = 0x00000020
-    
-    class WindowsDesktopPet:
-        def __init__(self):
-            # 启用 Windows DPI 感知
+# ── Flip Editor Dialog ────────────────────────────────────────────────────────
+class FlipEditorDialog:
+    """
+    Dialog for editing move-direction flip settings of the current pet.
+
+    For every move variant (move.gif / move1.gif / move2.gif …) the user can:
+      • Toggle "启用方向反转" on/off
+      • Choose "默认朝向方向": 左 or 右
+          默认方向=左 → 向左运动时不翻转，向右运动时翻转
+          默认方向=右 → 向右运动时不翻转，向左运动时翻转
+
+    Settings are written to Pets/<name>/flip.json and the pet is hot-reloaded.
+    """
+
+    def __init__(self, parent_root, pet_win: "PetWindow"):
+        self.pet_win = pet_win
+        self.win = tk.Toplevel(parent_root)
+        self.win.title("调整运动方向反转")
+        self.win.resizable(False, False)
+        self.win.grab_set()
+        self._rows: list[dict] = []   # [{key, enabled_var, dir_var}, …]
+        self._build_ui()
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    @staticmethod
+    def _variant_key(index: int, total: int) -> str:
+        """Return the flip.json key for a move variant."""
+        return "move" if total == 1 else f"move{index + 1}"
+
+    # ── build ─────────────────────────────────────────────────────────────────
+    def _build_ui(self):
+        win = self.win
+        pd  = self.pet_win.pet_data
+        pad = {"padx": 10, "pady": 5}
+
+        # ── header ────────────────────────────────────────────────────────
+        tk.Label(win, text=f"桌宠：{pd.name}",
+                 font=("Helvetica", 12, "bold")).grid(
+            row=0, column=0, columnspan=4, pady=(12, 2))
+
+        hint = (
+            '说明：启用后，桌宠向"非默认方向"运动时图片会水平翻转。\n'
+            '  默认方向=左 → 向左走不翻转，向右走翻转\n'
+            '  默认方向=右 → 向右走不翻转，向左走翻转'
+        )
+        tk.Label(win, text=hint, fg="#555", justify="left",
+                 font=("Helvetica", 8)).grid(
+            row=1, column=0, columnspan=4, padx=12, pady=(0, 8), sticky="w")
+
+        move_count = len(pd.move_variants)
+
+        if move_count == 0:
+            tk.Label(win, text="当前桌宠没有移动状态图，无法配置。",
+                     fg="gray").grid(row=2, column=0, columnspan=4, **pad)
+            tk.Button(win, text="关闭", command=self.win.destroy).grid(
+                row=3, column=0, columnspan=4, pady=10)
+            return
+
+        # ── column headers ────────────────────────────────────────────────
+        tk.Label(win, text="图片",       font=("Helvetica", 9, "bold"), width=10).grid(row=2, column=0, **pad)
+        tk.Label(win, text="启用反转",   font=("Helvetica", 9, "bold")).grid(row=2, column=1, **pad)
+        tk.Label(win, text="默认朝向",   font=("Helvetica", 9, "bold")).grid(row=2, column=2, **pad)
+        tk.Label(win, text="当前效果预览", font=("Helvetica", 9, "bold")).grid(row=2, column=3, padx=(0, 12))
+
+        ttk.Separator(win, orient="horizontal").grid(
+            row=3, column=0, columnspan=4, sticky="ew", padx=8, pady=2)
+
+        # ── one row per move variant ──────────────────────────────────────
+        for i in range(move_count):
+            key = self._variant_key(i, move_count)
+            existing = pd.move_flip_info.get(key, {})
+
+            enabled_var = tk.BooleanVar(value=existing.get("enabled", False))
+            dir_var     = tk.StringVar(value=existing.get("default_dir", "left"))
+
+            label_text = "move.gif" if move_count == 1 else f"move{i+1}.gif"
+            r = 4 + i
+
+            tk.Label(win, text=label_text, anchor="e").grid(row=r, column=0, sticky="e", **pad)
+
+            cb = tk.Checkbutton(win, variable=enabled_var,
+                                command=self._make_row_refresh(i))
+            cb.grid(row=r, column=1, **pad)
+
+            dir_combo = ttk.Combobox(win, textvariable=dir_var,
+                                     values=["left", "right"],
+                                     width=6, state="readonly")
+            dir_combo.grid(row=r, column=2, **pad)
+            dir_combo.bind("<<ComboboxSelected>>", lambda e, idx=i: self._refresh_preview(idx))
+
+            preview_lbl = tk.Label(win, text="", fg="#337", width=22, anchor="w",
+                                   font=("Helvetica", 8))
+            preview_lbl.grid(row=r, column=3, padx=(0, 12))
+
+            self._rows.append({
+                "key":         key,
+                "enabled_var": enabled_var,
+                "dir_var":     dir_var,
+                "preview_lbl": preview_lbl,
+            })
+            self._refresh_preview(i)
+
+        # ── buttons ───────────────────────────────────────────────────────
+        sep_row = 4 + move_count
+        ttk.Separator(win, orient="horizontal").grid(
+            row=sep_row, column=0, columnspan=4, sticky="ew", padx=8, pady=(8, 0))
+
+        btn_frame = tk.Frame(win)
+        btn_frame.grid(row=sep_row + 1, column=0, columnspan=4, pady=10)
+        tk.Button(btn_frame, text="保存并应用", bg="#4caf50", fg="white",
+                  command=self._save).pack(side="left", padx=8)
+        tk.Button(btn_frame, text="取消",
+                  command=self.win.destroy).pack(side="left", padx=8)
+
+    # ── preview ───────────────────────────────────────────────────────────────
+    def _make_row_refresh(self, idx):
+        return lambda: self._refresh_preview(idx)
+
+    def _refresh_preview(self, idx):
+        row      = self._rows[idx]
+        enabled  = row["enabled_var"].get()
+        default  = row["dir_var"].get()
+
+        if not enabled:
+            text = "⬜ 未启用（始终不翻转）"
+        else:
+            if default == "left":
+                text = "← 左走正常  |  → 右走翻转"
+            else:
+                text = "→ 右走正常  |  ← 左走翻转"
+
+        row["preview_lbl"].config(text=text)
+
+    # ── save ──────────────────────────────────────────────────────────────────
+    def _save(self):
+        pd   = self.pet_win.pet_data
+        path = os.path.join(pd.dir, "flip.json")
+
+        # read existing (preserve unknown keys / comments)
+        existing = {}
+        if os.path.exists(path):
             try:
-                ctypes.windll.shcore.SetProcessDpiAwareness(2)
-            except:
-                try:
-                    ctypes.windll.user32.SetProcessDPIAware()
-                except:
-                    pass
-            
-            self.root = tk.Tk()
-            self.engine = DesktopPetEngine()
-            
-            # 设置窗口属性
-            self.root.overrideredirect(True)
-            self.root.attributes("-topmost", True)
-            self.root.config(bg="magenta")
-            self.root.attributes("-transparentcolor", "magenta")
-            self.root.attributes("-alpha", self.engine.transparency)
-            
-            # 创建标签显示动画
-            self.label = tk.Label(self.root, bg="magenta", bd=0)
-            self.label.pack()
-            
-            # 绑定拖拽事件
-            self.label.bind("<ButtonPress-1>", self.start_drag)
-            self.label.bind("<B1-Motion>", self.do_drag)
-            self.label.bind("<ButtonRelease-1>", self.stop_drag)
-            
-            # 设置初始位置和大小
-            w, h = self.engine.get_size()
-            x, y = self.engine.get_position()
-            self.root.geometry(f"{w}x{h}+{int(x)}+{int(y)}")
-            
-            # 设置鼠标穿透
-            self.set_click_through(self.engine.click_through)
-            
-            # 创建系统托盘
-            self.create_tray_icon()
-            
-            # 启动动画和移动循环
-            self.animate()
-            self.move_loop()
-        
-        def set_click_through(self, enabled: bool):
-            """设置鼠标穿透"""
-            try:
-                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-                style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-                
-                if enabled:
-                    ctypes.windll.user32.SetWindowLongW(
-                        hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT
-                    )
-                else:
-                    ctypes.windll.user32.SetWindowLongW(
-                        hwnd, GWL_EXSTYLE, style & ~WS_EX_TRANSPARENT
-                    )
-            except Exception as e:
-                print(f"设置鼠标穿透失败: {e}")
-        
-        def start_drag(self, event):
-            self.engine.start_drag(event.x, event.y)
-        
-        def do_drag(self, event):
-            self.engine.update_drag(event.x_root, event.y_root)
-            w, h = self.engine.get_size()
-            self.root.geometry(f"{w}x{h}+{int(self.engine.x)}+{int(self.engine.y)}")
-        
-        def stop_drag(self, event=None):
-            self.engine.stop_drag()
-        
-        def animate(self):
-            """动画循环"""
-            frame = self.engine.get_current_frame()
-            self.label.config(image=frame)
-            self.engine.next_frame()
-            
-            delay = self.engine.current_delays[self.engine.frame_index] if self.engine.current_delays else 100
-            self.root.after(delay, self.animate)
-        
-        def move_loop(self):
-            """移动循环"""
-            # 获取鼠标位置
-            try:
-                mouse_x = self.root.winfo_pointerx()
-                mouse_y = self.root.winfo_pointery()
-            except:
-                mouse_x, mouse_y = None, None
-            
-            self.engine.update_position(mouse_x, mouse_y)
-            
-            # 更新窗口位置
-            w, h = self.engine.get_size()
-            x, y = self.engine.get_position()
-            self.root.geometry(f"{w}x{h}+{int(x)}+{int(y)}")
-            
-            # 确保窗口始终置顶
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            ctypes.windll.user32.SetWindowPos(
-                hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW
-            )
-            
-            self.root.after(MOVE_INTERVAL, self.move_loop)
-        
-        def create_tray_icon(self):
-            """创建系统托盘图标"""
-            try:
-                import pystray
-                from PIL import Image as PILImage
-                
-                # 尝试加载图标
-                icon_path = os.path.join(ICON_DIR, "Desktop Hachimi.ico")
-                if os.path.exists(icon_path):
-                    icon_img = PILImage.open(icon_path).convert("RGBA").resize((64, 64))
-                else:
-                    # 创建默认图标
-                    icon_img = PILImage.new("RGBA", (64, 64), color="blue")
-                
-                # 创建菜单
-                menu = self.create_menu()
-                self.icon = pystray.Icon("desktop_hachimi", icon_img, "Desktop Hachimi", menu)
-                
-                # 在新线程中运行托盘
-                import threading
-                tray_thread = threading.Thread(target=self.icon.run, daemon=True)
-                tray_thread.start()
-                
-            except ImportError:
-                print("pystray未安装，无法创建系统托盘")
-        
-        def create_menu(self):
-            """创建托盘菜单"""
-            import pystray
-            
-            # 缩放菜单
-            scale_menu = pystray.Menu(*[
-                pystray.MenuItem(
-                    f"{scale}x",
-                    lambda item, idx=i: self.on_scale_change(idx),
-                    checked=lambda item, idx=i: self.engine.scale == SCALE_OPTIONS[idx]
-                ) for i, scale in enumerate(SCALE_OPTIONS)
-            ])
-            
-            # 透明度菜单
-            transparency_menu = pystray.Menu(*[
-                pystray.MenuItem(
-                    f"{int(alpha * 100)}%",
-                    lambda item, idx=i: self.on_transparency_change(idx),
-                    checked=lambda item, idx=i: self.engine.transparency == TRANSPARENCY_OPTIONS[idx]
-                ) for i, alpha in enumerate(TRANSPARENCY_OPTIONS)
-            ])
-            
-            # 宠物菜单
-            available_pets = get_available_pets()
-            pet_menu = pystray.Menu(*[
-                pystray.MenuItem(
-                    pet,
-                    lambda item, name=pet: self.on_pet_change(name),
-                    checked=lambda item, name=pet: self.engine.pet_name == name
-                ) for pet in available_pets
-            ])
-            
-            # 主菜单
-            menu = pystray.Menu(
-                pystray.MenuItem("缩放", scale_menu),
-                pystray.MenuItem("透明度", transparency_menu),
-                pystray.MenuItem("切换宠物", pet_menu),
-                pystray.MenuItem(
-                    "鼠标穿透",
-                    lambda item: self.on_toggle_click_through(),
-                    checked=lambda item: self.engine.click_through
-                ),
-                pystray.MenuItem(
-                    "鼠标跟随",
-                    lambda item: self.on_toggle_mouse_follow(),
-                    checked=lambda item: self.engine.mouse_follow
-                ),
-                pystray.MenuItem(
-                    "暂停/开始",
-                    lambda item: self.on_toggle_pause(),
-                    checked=lambda item: self.engine.paused
-                ),
-                pystray.MenuItem("关于", lambda item: self.show_about()),
-                pystray.MenuItem("退出", lambda item: self.quit_app())
-            )
-            
-            return menu
-        
-        def on_scale_change(self, index):
-            self.engine.update_scale(index)
-            # 重新加载资源
-            self.engine.load_pet_assets()
-            # 重新设置窗口大小
-            w, h = self.engine.get_size()
-            self.root.geometry(f"{w}x{h}+{int(self.engine.x)}+{int(self.engine.y)}")
-        
-        def on_transparency_change(self, index):
-            self.engine.update_transparency(index)
-            self.root.attributes("-alpha", self.engine.transparency)
-        
-        def on_pet_change(self, pet_name):
-            self.engine.change_pet(pet_name)
-            # 重新加载资源
-            self.engine.load_pet_assets()
-            # 重新设置窗口大小
-            w, h = self.engine.get_size()
-            self.root.geometry(f"{w}x{h}+{int(self.engine.x)}+{int(self.engine.y)}")
-        
-        def on_toggle_click_through(self):
-            self.engine.toggle_click_through()
-            self.set_click_through(self.engine.click_through)
-        
-        def on_toggle_mouse_follow(self):
-            self.engine.toggle_mouse_follow()
-        
-        def on_toggle_pause(self):
-            self.engine.toggle_pause()
-        
-        def show_about(self):
-            """显示关于窗口"""
-            about_window = tk.Toplevel(self.root)
-            about_window.title("关于 Desktop Hachimi")
-            about_window.geometry("400x300")
-            about_window.resizable(False, False)
-            about_window.attributes("-topmost", True)
-            
-            # 居中显示
-            about_window.update_idletasks()
-            screen_w = about_window.winfo_screenwidth()
-            screen_h = about_window.winfo_screenheight()
-            x = (screen_w - 400) // 2
-            y = (screen_h - 300) // 2
-            about_window.geometry(f"+{x}+{y}")
-            
-            tk.Label(about_window, text=APP_NAME, font=("Arial", 16, "bold")).pack(pady=10)
-            tk.Label(about_window, text=f"版本: {VERSION}").pack()
-            tk.Label(about_window, text=f"作者: {AUTHOR}").pack()
-            tk.Label(about_window, text=f"邮箱: {AUTHOR_EMAIL}").pack(pady=20)
-            
-            tk.Button(about_window, text="确定", command=about_window.destroy).pack(pady=10)
-        
-        def quit_app(self):
-            """退出应用"""
-            if hasattr(self, 'icon'):
-                self.icon.stop()
-            self.root.quit()
-        
-        def run(self):
-            """运行应用"""
-            self.root.mainloop()
+                with open(path, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except Exception:
+                pass
+
+        # remove stale _comment key if present
+        existing.pop("_comment", None)
+
+        for row in self._rows:
+            key     = row["key"]
+            enabled = row["enabled_var"].get()
+            default = row["dir_var"].get()
+            if enabled:
+                existing[key] = {"enabled": True, "default_dir": default}
+            else:
+                # keep the entry but mark disabled (so UI re-opens correctly)
+                existing[key] = {"enabled": False, "default_dir": default}
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+
+        # hot-reload so changes take effect immediately
+        self.pet_win.reload_pet()
+        messagebox.showinfo("成功", "运动方向反转设置已保存并应用！", parent=self.win)
+        self.win.destroy()
 
 
+# ── About Dialog ──────────────────────────────────────────────────────────────
+class AboutDialog:
+    def __init__(self, parent_root):
+        win = tk.Toplevel(parent_root)
+        win.title(f"关于 {APP_NAME}")
+        win.resizable(False, False)
+        win.grab_set()
+
+        pad = {"padx": 16, "pady": 6}
+
+        tk.Label(win, text=APP_NAME, font=("Helvetica", 16, "bold")).pack(**pad)
+        tk.Label(win, text=f"版本: {VERSION}").pack(**pad)
+        tk.Label(win, text=f"作者: {AUTHOR}  ({AUTHOR_EMAIL})").pack(**pad)
+
+        link = tk.Label(win, text=GITHUB_URL, fg="blue", cursor="hand2")
+        link.pack(**pad)
+        link.bind("<Button-1>", lambda e: self._open_url(GITHUB_URL))
+
+        tk.Button(win, text="检查更新", command=lambda: self._check_update(win)).pack(pady=4)
+        tk.Button(win, text="关闭", command=win.destroy).pack(pady=8)
+
+    @staticmethod
+    def _open_url(url):
+        import webbrowser
+        webbrowser.open(url)
+
+    @staticmethod
+    def _check_update(win):
+        messagebox.showinfo("更新", f"请访问 GitHub 获取最新版本:\n{GITHUB_URL}", parent=win)
+
+
+# ── System Tray App ───────────────────────────────────────────────────────────
+class TrayApp:
+    def __init__(self):
+        self.cfg = load_config()
+        self.pet_win: PetWindow = None
+        self.tray: pystray.Icon = None
+
+    def _get_available_pets(self):
+        if not os.path.isdir(PETS_DIR):
+            return []
+        return [d for d in os.listdir(PETS_DIR) if os.path.isdir(os.path.join(PETS_DIR, d))]
+
+    def _pet_submenu(self):
+        pets = self._get_available_pets()
+        cur  = self.cfg["pet"]
+        items = []
+        for p in pets:
+            name = p
+            checked = (p == cur)
+            items.append(item(name, self._make_pet_setter(name), checked=lambda _, n=name: self.cfg["pet"] == n))
+        return Menu(*items)
+
+    def _make_pet_setter(self, name):
+        def fn(icon, menu_item):
+            self.cfg["pet"] = name
+            if self.pet_win:
+                self.pet_win.root.after(0, lambda: self.pet_win.set_pet(name))
+        return fn
+
+    def _scale_submenu(self):
+        items = []
+        for v in [round(x * 0.1, 1) for x in range(1, 21)]:
+            val = v
+            items.append(item(f"x{val:.1f}", self._make_scale_setter(val),
+                              checked=lambda _, v=val: abs(self.cfg["scale"] - v) < 0.05))
+        return Menu(*items)
+
+    def _make_scale_setter(self, val):
+        def fn(icon, mi):
+            if self.pet_win:
+                self.pet_win.root.after(0, lambda: self.pet_win.set_scale(val))
+        return fn
+
+    def _opacity_submenu(self):
+        items = []
+        for v in [round(x * 0.1, 1) for x in range(1, 11)]:
+            val = v
+            items.append(item(f"{int(val*100)}%", self._make_opacity_setter(val),
+                              checked=lambda _, v=val: abs(self.cfg["opacity"] - v) < 0.05))
+        return Menu(*items)
+
+    def _make_opacity_setter(self, val):
+        def fn(icon, mi):
+            if self.pet_win:
+                self.pet_win.root.after(0, lambda: self.pet_win.set_opacity(val))
+        return fn
+
+    def _speed_submenu(self):
+        speeds = list(range(1, 11))
+        items = []
+        for s in speeds:
+            sp = s
+            items.append(item(f"速度 {sp}", self._make_speed_setter(sp),
+                              checked=lambda _, v=sp: self.cfg["speed"] == v))
+        return Menu(*items)
+
+    def _make_speed_setter(self, val):
+        def fn(icon, mi):
+            if self.pet_win:
+                self.pet_win.root.after(0, lambda: self.pet_win.set_speed(val))
+        return fn
+
+    def _toggle_mouse_follow(self, icon, mi):
+        new_val = not self.cfg.get("mouse_follow", False)
+        self.cfg["mouse_follow"] = new_val
+        if self.pet_win:
+            self.pet_win.root.after(0, lambda: self.pet_win.set_mouse_follow(new_val))
+
+    def _toggle_always_on_top(self, icon, mi):
+        new_val = not self.cfg.get("always_on_top", True)
+        self.cfg["always_on_top"] = new_val
+        if self.pet_win:
+            self.pet_win.root.after(0, lambda: self.pet_win.set_always_on_top(new_val))
+
+    def _open_weight_editor(self, icon, mi):
+        if self.pet_win:
+            self.pet_win.root.after(0, lambda: WeightEditorDialog(self.pet_win.root, self.pet_win))
+
+    def _open_flip_editor(self, icon, mi):
+        if self.pet_win:
+            self.pet_win.root.after(0, lambda: FlipEditorDialog(self.pet_win.root, self.pet_win))
+
+    def _open_creator(self, icon, mi):
+        if self.pet_win:
+            self.pet_win.root.after(0, lambda: PetCreatorDialog(self.pet_win.root))
+
+    def _open_about(self, icon, mi):
+        if self.pet_win:
+            self.pet_win.root.after(0, lambda: AboutDialog(self.pet_win.root))
+
+    def _quit(self, icon, mi):
+        if self.pet_win:
+            self.pet_win.root.after(0, self._do_quit)
+
+    def _do_quit(self):
+        if self.pet_win:
+            self.pet_win.save_position()
+            self.pet_win.root.destroy()
+        if self.tray:
+            self.tray.stop()
+
+    def _build_menu(self):
+        return Menu(
+            item("切换桌宠",    Menu(self._pet_submenu)),
+            item("桌宠大小",    Menu(self._scale_submenu)),
+            item("透明度",      Menu(self._opacity_submenu)),
+            item("速度",        Menu(self._speed_submenu)),
+            item("鼠标跟随",    self._toggle_mouse_follow,
+                 checked=lambda _: self.cfg.get("mouse_follow", False)),
+            item("最上层显示",  self._toggle_always_on_top,
+                 checked=lambda _: self.cfg.get("always_on_top", True)),
+            Menu.SEPARATOR,
+            item("调整状态权重",     self._open_weight_editor),
+            item("调整运动方向反转", self._open_flip_editor),
+            item("创建桌宠",         self._open_creator),
+            item("关于",        self._open_about),
+            Menu.SEPARATOR,
+            item("退出",        self._quit),
+        )
+
+    def _load_tray_icon(self):
+        if os.path.exists(APP_ICO):
+            try:
+                return Image.open(APP_ICO).convert("RGBA")
+            except Exception:
+                pass
+        # fallback: simple colored square
+        img = Image.new("RGBA", (64, 64), (100, 180, 255, 255))
+        return img
+
+    def run(self):
+        # Start tray in background thread
+        tray_img = self._load_tray_icon()
+        self.tray = pystray.Icon(APP_NAME, tray_img, APP_NAME, menu=self._build_menu())
+
+        tray_thread = threading.Thread(target=self.tray.run, daemon=True)
+        tray_thread.start()
+
+        # Build pet window in main thread (tkinter requirement)
+        self.pet_win = PetWindow(self)
+        self.pet_win.run()
+
+
+# ── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    if platform.system() == "Windows":
-        app = WindowsDesktopPet()
-        app.run()
-    else:
-        print("此平台暂未支持，请等待后续更新")
+    app = TrayApp()
+    app.run()
