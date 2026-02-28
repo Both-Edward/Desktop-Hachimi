@@ -1,5 +1,9 @@
 # Desktop Hachimi 🐾
 
+<div align="center">
+    <img src="/ico/Desktop Hachimi ico.ico" width="50" height="50" />
+</div>
+
 **VERSION**: 1.0.0  
 
 ---
