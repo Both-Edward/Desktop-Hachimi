@@ -2,10 +2,6 @@
 
 **其他语言版本: [English](README.md), [中文](README_zh.md).**
 
-<div align="center">
-  <a href="#中文">中文</a> | <a href="#English">English</a>
-</div>
-
 ---
 
 # Desktop Hachimi - 智能桌宠伴侣 🐾
