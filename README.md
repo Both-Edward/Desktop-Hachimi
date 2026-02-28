@@ -1,7 +1,7 @@
 # Desktop Hachimi 🐾
 
 **VERSION**: 1.0.0  
-**AUTHOR**: Edward (2651671851@qq.com)
+**AUTHOR**: Edward
 
 ---
 
