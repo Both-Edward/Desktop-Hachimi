@@ -107,6 +107,7 @@ Desktop-Hachimi/
 
 ## 未来适配计划
 
+- [ ] LLM Agent
 - [ ] Linux (GTK tray)
 - [ ] macOS (rumps / AppKit tray)
 
