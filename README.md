@@ -1,10 +1,10 @@
-# Desktop Hachimi 🐾
+# Desktop Hachimi - 智能桌宠伴侣 🐾
 
 <div align="center">
     <img src="/ico/Desktop Hachimi ico.ico" width="150" height="150" />
 </div>
 
-**VERSION**: 1.0.0  
+Desktop Hachimi 是一个功能丰富的桌面宠物应用程序，为您的Windows桌面增添活力和趣味。这个可爱的数字伙伴会在您的桌面上自由活动，响应您的互动，为您的数字工作空间带来生气。
 
 ---
 
