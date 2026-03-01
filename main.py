@@ -1,6 +1,6 @@
 """
 Desktop Hachimi - Windows Desktop Pet Application
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 APP_NAME = "Desktop Hachimi"
 AUTHOR = "Edward"
 AUTHOR_EMAIL = "2651671851@qq.com"
@@ -14,6 +14,8 @@ import shutil
 import math
 import threading
 import time
+import urllib.request
+import urllib.error
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk, ImageSequence
@@ -21,11 +23,71 @@ import pystray
 from pystray import MenuItem as item, Menu
 
 # ── App Info ──────────────────────────────────────────────────────────────────
-VERSION      = "1.0.0"
+VERSION      = "1.0.1"
 APP_NAME     = "Desktop Hachimi"
 AUTHOR       = "Edward"
 AUTHOR_EMAIL = "2651671851@qq.com"
 GITHUB_URL   = "https://github.com/Edward-EH-Holmes/Desktop-Hachimi"
+
+# ── Autostart (Windows Registry) ─────────────────────────────────────────────
+_REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def _get_exe_path() -> str:
+    """
+    Return the path that should be written to the registry for autostart.
+    - If running as a PyInstaller bundle: sys.executable (the .exe)
+    - If running as a plain .py script: 'pythonw.exe "<script_path>"'
+      (pythonw suppresses the console window)
+    """
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
+    else:
+        pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        if not os.path.exists(pythonw):
+            pythonw = sys.executable          # fallback: regular python
+        script = os.path.abspath(__file__)
+        return f'"{pythonw}" "{script}"'
+
+
+def get_autostart() -> bool:
+    """Return True if the app's autostart entry exists in the registry."""
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REG_RUN_KEY, 0, winreg.KEY_READ)
+        winreg.QueryValueEx(key, APP_NAME)
+        winreg.CloseKey(key)
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+
+def set_autostart(enable: bool) -> bool:
+    """
+    Enable or disable autostart.  Returns True on success.
+    Uses HKCU (no admin rights required).
+    """
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, _REG_RUN_KEY,
+            0, winreg.KEY_SET_VALUE | winreg.KEY_READ
+        )
+        if enable:
+            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, _get_exe_path())
+        else:
+            try:
+                winreg.DeleteValue(key, APP_NAME)
+            except FileNotFoundError:
+                pass          # already absent — that's fine
+        winreg.CloseKey(key)
+        return True
+    except Exception as e:
+        print(f"[WARN] set_autostart({enable}): {e}")
+        return False
+
 
 # ── DPI Awareness (Windows) ───────────────────────────────────────────────────
 def _enable_dpi_awareness():
@@ -735,6 +797,12 @@ class PetWindow:
             command=lambda: self.root.after(0, lambda: self.set_always_on_top(not self.cfg.get("always_on_top", True)))
         )
 
+        ast_on = get_autostart()
+        menu.add_command(
+            label=("✓ " if ast_on else "   ") + "开机自启动",
+            command=lambda: self.root.after(0, self.app._toggle_autostart)
+        )
+
         menu.add_separator()
 
         menu.add_command(label="   调整状态权重",
@@ -1351,10 +1419,45 @@ class FlipEditorDialog:
         self.win.destroy()
 
 
+# ── Update Checker ────────────────────────────────────────────────────────────
+# GitHub repository info (owner/repo extracted from GITHUB_URL)
+GITHUB_OWNER = "Edward-EH-Holmes"
+GITHUB_REPO  = "Desktop-Hachimi"
+GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+GITHUB_RELEASES   = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
+
+
+def _version_tuple(v: str):
+    """Convert version string like '1.0.1' to tuple (1, 0, 1) for comparison."""
+    try:
+        return tuple(int(x) for x in v.lstrip("v").split("."))
+    except Exception:
+        return (0,)
+
+
+def fetch_latest_release():
+    """
+    Query GitHub API for the latest release.
+    Returns dict with keys: tag_name, html_url, body, assets
+    Raises urllib.error.URLError / ValueError on failure.
+    """
+    req = urllib.request.Request(
+        GITHUB_API_LATEST,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"{APP_NAME}/{VERSION}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data
+
+
 # ── About Dialog ──────────────────────────────────────────────────────────────
 class AboutDialog:
     def __init__(self, parent_root):
-        win = tk.Toplevel(parent_root)
+        self.win = tk.Toplevel(parent_root)
+        win = self.win
         win.title(f"关于 {APP_NAME}")
         set_window_icon(win)
         win.resizable(False, False)
@@ -1370,17 +1473,107 @@ class AboutDialog:
         link.pack(**pad)
         link.bind("<Button-1>", lambda e: self._open_url(GITHUB_URL))
 
-        tk.Button(win, text="检查更新", font=_FONT_NORMAL, command=lambda: self._check_update(win)).pack(pady=4)
+        # "检查更新" button + status label
+        btn_frame = tk.Frame(win)
+        btn_frame.pack(pady=4)
+        self._update_btn = tk.Button(
+            btn_frame, text="检查更新", font=_FONT_NORMAL,
+            command=self._start_check_update
+        )
+        self._update_btn.pack(side="left", padx=6)
+
+        self._status_var = tk.StringVar(value="")
+        self._status_lbl = tk.Label(win, textvariable=self._status_var,
+                                    font=_FONT_SMALL, fg="#555", wraplength=320)
+        self._status_lbl.pack(padx=16, pady=(0, 4))
+
+        # Download button — hidden until an update is found
+        self._dl_btn = tk.Button(
+            win, text="⬇  前往下载最新版本", font=_FONT_NORMAL,
+            bg="#1976d2", fg="white", cursor="hand2",
+            command=self._open_releases
+        )
+        # not packed yet
+
         tk.Button(win, text="关闭", font=_FONT_NORMAL, command=win.destroy).pack(pady=8)
 
+    # ── helpers ───────────────────────────────────────────────────────────
     @staticmethod
     def _open_url(url):
         import webbrowser
         webbrowser.open(url)
 
-    @staticmethod
-    def _check_update(win):
-        messagebox.showinfo("更新", f"请访问 GitHub 获取最新版本:\n{GITHUB_URL}", parent=win)
+    def _open_releases(self):
+        self._open_url(GITHUB_RELEASES)
+
+    # ── update check ──────────────────────────────────────────────────────
+    def _start_check_update(self):
+        """Kick off the update check in a background thread to avoid freezing the UI."""
+        self._update_btn.config(state="disabled")
+        self._status_var.set("正在检查更新，请稍候…")
+        self._status_lbl.config(fg="#555")
+        threading.Thread(target=self._do_check_update, daemon=True).start()
+
+    def _do_check_update(self):
+        """Background thread: fetch GitHub latest release and schedule UI update."""
+        try:
+            release = fetch_latest_release()
+            latest_tag  = release.get("tag_name", "").lstrip("v")
+            release_url = release.get("html_url", GITHUB_RELEASES)
+            release_body = (release.get("body") or "").strip()
+
+            latest_tuple  = _version_tuple(latest_tag)
+            current_tuple = _version_tuple(VERSION)
+
+            if latest_tuple > current_tuple:
+                result = ("new", latest_tag, release_url, release_body)
+            elif latest_tuple == current_tuple:
+                result = ("latest", latest_tag, release_url, release_body)
+            else:
+                # current is newer than published (dev build)
+                result = ("dev", latest_tag, release_url, release_body)
+
+        except urllib.error.URLError as e:
+            result = ("error", str(e), "", "")
+        except Exception as e:
+            result = ("error", str(e), "", "")
+
+        # Schedule UI update back on main thread
+        try:
+            self.win.after(0, lambda: self._show_update_result(result))
+        except Exception:
+            pass  # window may have been closed
+
+    def _show_update_result(self, result):
+        """Called on main thread with the check result."""
+        self._update_btn.config(state="normal")
+
+        kind = result[0]
+
+        if kind == "new":
+            _, latest_tag, release_url, body = result
+            self._status_var.set(
+                f"🎉 发现新版本 v{latest_tag}！（当前 v{VERSION}）\n"
+                + (f"更新内容：{body[:200]}" if body else "")
+            )
+            self._status_lbl.config(fg="#1565c0")
+            self._dl_btn.pack(pady=(0, 6))
+
+        elif kind == "latest":
+            self._status_var.set(f"✅ 已是最新版本（v{VERSION}）")
+            self._status_lbl.config(fg="#2e7d32")
+
+        elif kind == "dev":
+            _, latest_tag, *_ = result
+            self._status_var.set(
+                f"🛠 当前版本（v{VERSION}）比最新发布版（v{latest_tag}）更新，可能是开发版。"
+            )
+            self._status_lbl.config(fg="#e65100")
+
+        else:  # error
+            _, err_msg, *_ = result
+            self._status_var.set(f"❌ 检查失败：{err_msg}\n请检查网络连接或访问 GitHub 手动查看。")
+            self._status_lbl.config(fg="#c62828")
 
 
 # ── System Tray App ───────────────────────────────────────────────────────────
@@ -1467,6 +1660,19 @@ class TrayApp:
         if self.pet_win:
             self.pet_win.root.after(0, lambda: self.pet_win.set_always_on_top(new_val))
 
+    def _toggle_autostart(self, icon=None, mi=None):
+        """Toggle Windows autostart registry entry, show result toast."""
+        current = get_autostart()
+        success = set_autostart(not current)
+        if self.pet_win:
+            def _notify():
+                if success:
+                    state = "已开启" if not current else "已关闭"
+                    messagebox.showinfo("开机自启动", f"开机自启动{state}。", parent=self.pet_win.root)
+                else:
+                    messagebox.showerror("开机自启动", "修改失败，请检查权限或手动设置。", parent=self.pet_win.root)
+            self.pet_win.root.after(0, _notify)
+
     def _open_weight_editor(self, icon, mi):
         if self.pet_win:
             self.pet_win.root.after(0, lambda: WeightEditorDialog(self.pet_win.root, self.pet_win))
@@ -1504,6 +1710,8 @@ class TrayApp:
                  checked=lambda _: self.cfg.get("mouse_follow", False)),
             item("最上层显示",  self._toggle_always_on_top,
                  checked=lambda _: self.cfg.get("always_on_top", True)),
+            item("开机自启动",  self._toggle_autostart,
+                 checked=lambda _: get_autostart()),
             Menu.SEPARATOR,
             item("调整状态权重",     self._open_weight_editor),
             item("调整运动方向反转", self._open_flip_editor),
