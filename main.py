@@ -241,6 +241,11 @@ class PetWindow:
         self.move_target  = None      # (tx, ty) when following mouse
         self._move_timer  = None
 
+        # mouse follow
+        self._mf_loop_id      = None   # after-id for high-freq mouse follow loop
+        self._mf_leave_id     = None   # after-id for 1s delay before leaving dynamic
+        self._mf_near_mouse   = False  # whether pet is currently near mouse
+
         # drag
         self._drag_ox = 0
         self._drag_oy = 0
@@ -270,20 +275,22 @@ class PetWindow:
         if self._move_timer:
             self.root.after_cancel(self._move_timer)
             self._move_timer = None
+        self._stop_mouse_follow_loop()
         self._flipped_cache.clear()
         self.load_pet()
+        if self.cfg.get("mouse_follow"):
+            self._start_mouse_follow_loop()
 
     # ── State Machine ──────────────────────────────────────────────────────
     def start_state_machine(self):
         self._state_tick()
+        if self.cfg.get("mouse_follow"):
+            self._start_mouse_follow_loop()
 
     def _state_tick(self):
-        """Periodically decide whether to switch state."""
-        if self.state not in (STATE_DRAG,):
-            if self.cfg.get("mouse_follow") and self.state != STATE_DRAG:
-                self._follow_mouse_logic()
-            else:
-                self._autonomous_logic()
+        """Periodically decide whether to switch state (autonomous mode only)."""
+        if self.state not in (STATE_DRAG,) and not self.cfg.get("mouse_follow"):
+            self._autonomous_logic()
         self.root.after(5000, self._state_tick)
 
     def _autonomous_logic(self):
@@ -316,29 +323,84 @@ class PetWindow:
         if self.state == STATE_MOVE:
             self._enter_state(STATE_IDLE)
 
-    def _follow_mouse_logic(self):
+    # ── Mouse Follow High-Freq Loop ─────────────────────────────────────────
+    def _start_mouse_follow_loop(self):
+        """Start the high-frequency mouse follow loop (50ms interval)."""
+        self._mf_near_mouse = False
+        self._cancel_mf_leave_timer()
+        self._mf_loop_tick()
+
+    def _stop_mouse_follow_loop(self):
+        """Stop the high-frequency mouse follow loop."""
+        if self._mf_loop_id:
+            self.root.after_cancel(self._mf_loop_id)
+            self._mf_loop_id = None
+        self._cancel_mf_leave_timer()
+        self._mf_near_mouse = False
+
+    def _cancel_mf_leave_timer(self):
+        if self._mf_leave_id:
+            self.root.after_cancel(self._mf_leave_id)
+            self._mf_leave_id = None
+
+    def _mf_loop_tick(self):
+        """High-frequency tick: update velocity and state for mouse follow."""
+        if not self.cfg.get("mouse_follow") or self.state == STATE_DRAG:
+            self._mf_loop_id = None
+            return
+
         mx = self.root.winfo_pointerx()
         my = self.root.winfo_pointery()
-        pw = self.canvas.winfo_width()
-        ph = self.canvas.winfo_height()
+        pw = max(self.canvas.winfo_width(), 1)
+        ph = max(self.canvas.winfo_height(), 1)
         cx = self.x + pw / 2
         cy = self.y + ph / 2
         dist = math.hypot(mx - cx, my - cy)
-        if dist < 20:
-            if self.state != STATE_DYNAMIC:
-                self._enter_state(STATE_DYNAMIC)
+
+        near_threshold = max(pw, ph) / 2 + 10   # arrived when centre within sprite radius+10px
+
+        if dist < near_threshold:
+            # Pet has reached the mouse
+            if not self._mf_near_mouse:
+                # Just arrived — cancel any pending leave timer and enter dynamic
+                self._mf_near_mouse = True
+                self._cancel_mf_leave_timer()
+                self.vx = 0.0
+                self.vy = 0.0
+                if self.state != STATE_DYNAMIC:
+                    self._enter_state(STATE_DYNAMIC)
+            else:
+                # Still near — stay in dynamic, keep velocity 0
+                self.vx = 0.0
+                self.vy = 0.0
         else:
-            if self.state == STATE_DYNAMIC:
-                self.root.after(1000, lambda: self._enter_state(STATE_MOVE) if self.cfg.get("mouse_follow") else None)
-            elif self.state != STATE_MOVE:
+            # Mouse is away from pet
+            if self._mf_near_mouse:
+                # Just left — start 1s countdown then resume moving
+                self._mf_near_mouse = False
+                self._cancel_mf_leave_timer()
+                self._mf_leave_id = self.root.after(1000, self._mf_leave_dynamic)
+            else:
+                # Already moving — update velocity towards mouse
+                if self.state != STATE_MOVE:
+                    self._enter_state(STATE_MOVE)
+                speed = self.cfg.get("speed", 3)
+                dx, dy = mx - cx, my - cy
+                d = max(dist, 1)
+                self.vx = dx / d * speed
+                self.vy = dy / d * speed
+                self.going_right = self.vx >= 0
+                self.move_target = (mx, my)
+
+        self._mf_loop_id = self.root.after(50, self._mf_loop_tick)
+
+    def _mf_leave_dynamic(self):
+        """Called 1 second after mouse left the pet — start chasing again."""
+        self._mf_leave_id = None
+        if self.cfg.get("mouse_follow") and self.state != STATE_DRAG:
+            if self.state != STATE_MOVE:
                 self._enter_state(STATE_MOVE)
-            speed = self.cfg.get("speed", 3)
-            dx, dy = mx - cx, my - cy
-            d = max(dist, 1)
-            self.vx = dx / d * speed
-            self.vy = dy / d * speed
-            self.going_right = self.vx >= 0
-            self.move_target = (mx, my)
+            # velocity will be updated on next tick
 
     # ── State Entry ────────────────────────────────────────────────────────
     def _enter_state(self, state):
@@ -441,6 +503,11 @@ class PetWindow:
         self.prev_state = self.state
         self._drag_ox = event.x_root - self.x
         self._drag_oy = event.y_root - self.y
+        # pause mouse follow loop during drag
+        if self._mf_loop_id:
+            self.root.after_cancel(self._mf_loop_id)
+            self._mf_loop_id = None
+        self._cancel_mf_leave_timer()
         self._enter_state(STATE_DRAG)
 
     def _on_drag_motion(self, event):
@@ -450,6 +517,10 @@ class PetWindow:
 
     def _on_drag_end(self, event):
         self._enter_state(self.prev_state if self.prev_state != STATE_DRAG else STATE_IDLE)
+        # resume mouse follow loop after drag
+        if self.cfg.get("mouse_follow"):
+            self._mf_near_mouse = False
+            self._mf_loop_tick()
 
     # ── Public API ─────────────────────────────────────────────────────────
     def set_pet(self, name):
@@ -474,8 +545,12 @@ class PetWindow:
     def set_mouse_follow(self, val):
         self.cfg["mouse_follow"] = val
         save_config(self.cfg)
-        if not val and self.state == STATE_MOVE:
-            self._enter_state(STATE_IDLE)
+        if val:
+            self._start_mouse_follow_loop()
+        else:
+            self._stop_mouse_follow_loop()
+            if self.state in (STATE_MOVE, STATE_DYNAMIC):
+                self._enter_state(STATE_IDLE)
 
     def set_always_on_top(self, val):
         self.cfg["always_on_top"] = val

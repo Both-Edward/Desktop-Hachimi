@@ -1,10 +1,10 @@
 {
   "pet": "Ameath",
-  "scale": 1.0,
+  "scale": 0.5,
   "opacity": 1.0,
   "speed": 3,
-  "mouse_follow": false,
-  "always_on_top": false,
-  "x": 100,
-  "y": 100
+  "mouse_follow": true,
+  "always_on_top": true,
+  "x": 1068,
+  "y": 579
 }
