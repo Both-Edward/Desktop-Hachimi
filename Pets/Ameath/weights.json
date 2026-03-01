@@ -1,12 +1,12 @@
 {
   "dynamic_weight": 1,
   "idle_weight": [
-    1,
-    1,
-    1,
-    1
+    2,
+    2,
+    2,
+    2
   ],
   "move_weight": [
-    2
+    1
   ]
 }

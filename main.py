@@ -27,6 +27,29 @@ AUTHOR       = "Edward"
 AUTHOR_EMAIL = "2651671851@qq.com"
 GITHUB_URL   = "https://github.com/Edward-EH-Holmes/Desktop-Hachimi"
 
+# ── DPI Awareness (Windows) ───────────────────────────────────────────────────
+def _enable_dpi_awareness():
+    """Call SetProcessDpiAwareness so tkinter windows are crisp on HiDPI screens."""
+    try:
+        import ctypes
+        # Windows 8.1+: Per-Monitor DPI awareness
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            import ctypes
+            # Windows Vista+: System DPI awareness
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+_enable_dpi_awareness()
+
+# ── Global font for dialogs ───────────────────────────────────────────────────
+_FONT_NORMAL = ("Microsoft YaHei UI", 10)
+_FONT_BOLD   = ("Microsoft YaHei UI", 10, "bold")
+_FONT_LARGE  = ("Microsoft YaHei UI", 13, "bold")
+_FONT_SMALL  = ("Microsoft YaHei UI", 9)
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 PETS_DIR   = os.path.join(BASE_DIR, "Pets")
@@ -108,6 +131,15 @@ def get_screen_for_point(px, py, monitors):
     return best
 
 
+def set_window_icon(win):
+    """Set the app icon on any Toplevel (or Tk) window."""
+    if os.path.exists(APP_ICO):
+        try:
+            win.iconbitmap(APP_ICO)
+        except Exception:
+            pass
+
+
 def load_config():
     if os.path.exists(CONFIG_F):
         try:
@@ -127,6 +159,49 @@ def save_config(cfg):
 
 
 # ── GIF Loader ────────────────────────────────────────────────────────────────
+def _resize_rgba_no_bleed(img_rgba, new_w, new_h):
+    """
+    Resize an RGBA image without black-border bleeding artefacts.
+
+    The standard LANCZOS filter mixes transparent (0,0,0,0) pixels with
+    opaque pixels at edges, pulling RGB values toward (0,0,0) and creating
+    a dark halo / black fringe.  The fix is 'pre-multiplied alpha' (a.k.a.
+    alpha-weighted) resampling:
+      1. Premultiply: scale each channel by alpha/255 so transparent pixels
+         contribute zero colour.
+      2. Resize RGB and A channels separately with LANCZOS.
+      3. Un-premultiply: divide RGB by the resampled alpha to recover correct
+         colour; pixels that became fully transparent get zero colour.
+    """
+    import numpy as np
+
+    arr = np.array(img_rgba, dtype=np.float32)          # H x W x 4
+    r, g, b, a = arr[..., 0], arr[..., 1], arr[..., 2], arr[..., 3]
+    alpha_norm = a / 255.0
+
+    # Premultiply
+    pre = np.stack([r * alpha_norm,
+                    g * alpha_norm,
+                    b * alpha_norm,
+                    a], axis=-1).astype(np.uint8)
+    pre_img = Image.fromarray(pre, "RGBA")
+
+    # Resize premultiplied image and alpha separately
+    pre_resized = pre_img.resize((new_w, new_h), Image.LANCZOS)
+    pre_arr     = np.array(pre_resized, dtype=np.float32)
+
+    # Un-premultiply
+    ra = pre_arr[..., 3] / 255.0                        # resampled alpha [0,1]
+    out = np.zeros_like(pre_arr)
+    mask = ra > 0
+    for c in range(3):
+        ch = pre_arr[..., c]
+        out[..., c] = np.where(mask, np.clip(ch / np.where(mask, ra, 1), 0, 255), 0)
+    out[..., 3] = pre_arr[..., 3]
+
+    return Image.fromarray(out.astype(np.uint8), "RGBA")
+
+
 def load_gif_frames(path, scale=1.0):
     """Return list of (ImageTk.PhotoImage, duration_ms, pil_image).
     The pil_image is kept so we can flip it on demand."""
@@ -139,7 +214,7 @@ def load_gif_frames(path, scale=1.0):
             if scale != 1.0:
                 w = max(1, int(f.width  * scale))
                 h = max(1, int(f.height * scale))
-                f = f.resize((w, h), Image.LANCZOS)
+                f = _resize_rgba_no_bleed(f, w, h)
             frames.append((ImageTk.PhotoImage(f), duration, f))
     except Exception as e:
         print(f"[WARN] load_gif_frames({path}): {e}")
@@ -274,6 +349,18 @@ class PetWindow:
         self.root.attributes("-topmost", self.cfg["always_on_top"])
         self.root.configure(bg="black")
         self.root.attributes("-alpha", self.cfg["opacity"])
+
+        # Set crisp default font for all widgets globally
+        try:
+            import tkinter.font as tkfont
+            default_font = tkfont.nametofont("TkDefaultFont")
+            default_font.configure(family="Microsoft YaHei UI", size=10)
+            text_font = tkfont.nametofont("TkTextFont")
+            text_font.configure(family="Microsoft YaHei UI", size=10)
+            fixed_font = tkfont.nametofont("TkFixedFont")
+            fixed_font.configure(family="Consolas", size=10)
+        except Exception:
+            pass
 
         # set icon if possible
         if os.path.exists(APP_ICO):
@@ -590,6 +677,87 @@ class PetWindow:
         self.canvas.bind("<ButtonPress-1>",   self._on_drag_start)
         self.canvas.bind("<B1-Motion>",       self._on_drag_motion)
         self.canvas.bind("<ButtonRelease-1>", self._on_drag_end)
+        self.canvas.bind("<ButtonPress-3>",   self._on_right_click)
+
+    def _build_context_menu(self):
+        """Build a tk.Menu that mirrors the system tray menu."""
+        app = self.app
+        cfg = self.cfg
+        menu = tk.Menu(self.root, tearoff=0, font=("Microsoft YaHei UI", 10))
+
+        # --- 切换桌宠 ---
+        pet_menu = tk.Menu(menu, tearoff=0, font=("Microsoft YaHei UI", 10))
+        for p in app._get_available_pets():
+            pet_menu.add_command(
+                label=("✓ " if p == cfg["pet"] else "   ") + p,
+                command=lambda n=p: self.root.after(0, lambda: self.set_pet(n))
+            )
+        menu.add_cascade(label="切换桌宠", menu=pet_menu)
+
+        # --- 桌宠大小 ---
+        scale_menu = tk.Menu(menu, tearoff=0, font=("Microsoft YaHei UI", 10))
+        for v in [round(x * 0.1, 1) for x in range(1, 21)]:
+            scale_menu.add_command(
+                label=("✓ " if abs(cfg["scale"] - v) < 0.05 else "   ") + f"x{v:.1f}",
+                command=lambda val=v: self.root.after(0, lambda: self.set_scale(val))
+            )
+        menu.add_cascade(label="桌宠大小", menu=scale_menu)
+
+        # --- 透明度 ---
+        opacity_menu = tk.Menu(menu, tearoff=0, font=("Microsoft YaHei UI", 10))
+        for v in [round(x * 0.1, 1) for x in range(1, 11)]:
+            opacity_menu.add_command(
+                label=("✓ " if abs(cfg["opacity"] - v) < 0.05 else "   ") + f"{int(v*100)}%",
+                command=lambda val=v: self.root.after(0, lambda: self.set_opacity(val))
+            )
+        menu.add_cascade(label="透明度", menu=opacity_menu)
+
+        # --- 速度 ---
+        speed_menu = tk.Menu(menu, tearoff=0, font=("Microsoft YaHei UI", 10))
+        for s in range(1, 11):
+            speed_menu.add_command(
+                label=("✓ " if cfg["speed"] == s else "   ") + f"速度 {s}",
+                command=lambda val=s: self.root.after(0, lambda: self.set_speed(val))
+            )
+        menu.add_cascade(label="速度", menu=speed_menu)
+
+        menu.add_separator()
+
+        mf = cfg.get("mouse_follow", False)
+        menu.add_command(
+            label=("✓ " if mf else "   ") + "鼠标跟随",
+            command=lambda: self.root.after(0, lambda: self.set_mouse_follow(not self.cfg.get("mouse_follow", False)))
+        )
+
+        aot = cfg.get("always_on_top", True)
+        menu.add_command(
+            label=("✓ " if aot else "   ") + "最上层显示",
+            command=lambda: self.root.after(0, lambda: self.set_always_on_top(not self.cfg.get("always_on_top", True)))
+        )
+
+        menu.add_separator()
+
+        menu.add_command(label="   调整状态权重",
+                         command=lambda: self.root.after(0, lambda: WeightEditorDialog(self.root, self)))
+        menu.add_command(label="   调整运动方向反转",
+                         command=lambda: self.root.after(0, lambda: FlipEditorDialog(self.root, self)))
+        menu.add_command(label="   创建桌宠",
+                         command=lambda: self.root.after(0, lambda: PetCreatorDialog(self.root)))
+        menu.add_command(label="   关于",
+                         command=lambda: self.root.after(0, lambda: AboutDialog(self.root)))
+
+        menu.add_separator()
+        menu.add_command(label="   退出",
+                         command=lambda: self.root.after(0, self.app._do_quit))
+
+        return menu
+
+    def _on_right_click(self, event):
+        menu = self._build_context_menu()
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     def _on_drag_start(self, event):
         self.prev_state = self.state
@@ -672,6 +840,7 @@ class PetCreatorDialog:
     def __init__(self, parent_root):
         self.win = tk.Toplevel(parent_root)
         self.win.title("创建桌宠")
+        set_window_icon(self.win)
         self.win.resizable(False, False)
         self.win.grab_set()
 
@@ -849,6 +1018,7 @@ class WeightEditorDialog:
         self.pet_win = pet_win
         self.win = tk.Toplevel(parent_root)
         self.win.title("调整状态权重")
+        set_window_icon(self.win)
         self.win.resizable(False, False)
         self.win.grab_set()
         self._build_ui()
@@ -859,11 +1029,11 @@ class WeightEditorDialog:
         pad  = {"padx": 10, "pady": 5}
 
         # ── Title ─────────────────────────────────────────────────────────
-        tk.Label(win, text=f"桌宠：{pd.name}", font=("Helvetica", 12, "bold")).grid(
+        tk.Label(win, text=f"桌宠：{pd.name}", font=_FONT_BOLD).grid(
             row=0, column=0, columnspan=3, pady=(10, 4))
 
         tk.Label(win, text="说明：权重为正整数，值越大该状态出现概率越高。",
-                 fg="gray").grid(row=1, column=0, columnspan=3, padx=10, pady=(0, 8))
+                 fg="gray", font=_FONT_SMALL).grid(row=1, column=0, columnspan=3, padx=10, pady=(0, 8))
 
         row = 2
 
@@ -887,15 +1057,15 @@ class WeightEditorDialog:
                 row=row, column=0, columnspan=3, **pad)
             row += 1
         elif idle_count == 1:
-            tk.Label(win, text="非移动状态 权重：", anchor="e").grid(
+            tk.Label(win, text="非移动状态 权重：", anchor="e", font=_FONT_NORMAL).grid(
                 row=row, column=0, sticky="e", **pad)
             v = tk.IntVar(value=pd.idle_weights[0] if pd.idle_weights else 2)
-            tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(
+            tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6, font=_FONT_NORMAL).grid(
                 row=row, column=1, sticky="w", **pad)
             self._idle_vars.append(v)
             row += 1
         else:
-            tk.Label(win, text="非移动状态（多图）：", font=("Helvetica", 9, "bold")).grid(
+            tk.Label(win, text="非移动状态（多图）：", font=_FONT_BOLD).grid(
                 row=row, column=0, columnspan=3, sticky="w", padx=10)
             row += 1
             for i in range(idle_count):
@@ -921,15 +1091,15 @@ class WeightEditorDialog:
                 row=row, column=0, columnspan=3, **pad)
             row += 1
         elif move_count == 1:
-            tk.Label(win, text="移动状态 权重：", anchor="e").grid(
+            tk.Label(win, text="移动状态 权重：", anchor="e", font=_FONT_NORMAL).grid(
                 row=row, column=0, sticky="e", **pad)
             v = tk.IntVar(value=pd.move_weights[0] if pd.move_weights else 1)
-            tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(
+            tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6, font=_FONT_NORMAL).grid(
                 row=row, column=1, sticky="w", **pad)
             self._move_vars.append(v)
             row += 1
         else:
-            tk.Label(win, text="移动状态（多图）：", font=("Helvetica", 9, "bold")).grid(
+            tk.Label(win, text="移动状态（多图）：", font=_FONT_BOLD).grid(
                 row=row, column=0, columnspan=3, sticky="w", padx=10)
             row += 1
             for i in range(move_count):
@@ -1029,6 +1199,7 @@ class FlipEditorDialog:
         self.pet_win = pet_win
         self.win = tk.Toplevel(parent_root)
         self.win.title("调整运动方向反转")
+        set_window_icon(self.win)
         self.win.resizable(False, False)
         self.win.grab_set()
         self._rows: list[dict] = []   # [{key, enabled_var, dir_var}, …]
@@ -1185,21 +1356,22 @@ class AboutDialog:
     def __init__(self, parent_root):
         win = tk.Toplevel(parent_root)
         win.title(f"关于 {APP_NAME}")
+        set_window_icon(win)
         win.resizable(False, False)
         win.grab_set()
 
         pad = {"padx": 16, "pady": 6}
 
-        tk.Label(win, text=APP_NAME, font=("Helvetica", 16, "bold")).pack(**pad)
-        tk.Label(win, text=f"版本: {VERSION}").pack(**pad)
-        tk.Label(win, text=f"作者: {AUTHOR}  ({AUTHOR_EMAIL})").pack(**pad)
+        tk.Label(win, text=APP_NAME, font=_FONT_LARGE).pack(**pad)
+        tk.Label(win, text=f"版本: {VERSION}", font=_FONT_NORMAL).pack(**pad)
+        tk.Label(win, text=f"作者: {AUTHOR}  ({AUTHOR_EMAIL})", font=_FONT_NORMAL).pack(**pad)
 
-        link = tk.Label(win, text=GITHUB_URL, fg="blue", cursor="hand2")
+        link = tk.Label(win, text=GITHUB_URL, fg="blue", cursor="hand2", font=_FONT_NORMAL)
         link.pack(**pad)
         link.bind("<Button-1>", lambda e: self._open_url(GITHUB_URL))
 
-        tk.Button(win, text="检查更新", command=lambda: self._check_update(win)).pack(pady=4)
-        tk.Button(win, text="关闭", command=win.destroy).pack(pady=8)
+        tk.Button(win, text="检查更新", font=_FONT_NORMAL, command=lambda: self._check_update(win)).pack(pady=4)
+        tk.Button(win, text="关闭", font=_FONT_NORMAL, command=win.destroy).pack(pady=8)
 
     @staticmethod
     def _open_url(url):
