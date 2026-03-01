@@ -47,6 +47,67 @@ DEFAULT_CFG = {
 }
 
 
+def get_monitors():
+    """Return list of (x, y, w, h) for each monitor.
+    Tries screeninfo first; falls back to single-screen via tkinter."""
+    try:
+        from screeninfo import get_monitors as _gm
+        return [(m.x, m.y, m.width, m.height) for m in _gm()]
+    except Exception:
+        pass
+    # Fallback: try using win32api if available
+    try:
+        import ctypes
+        monitors = []
+        def _cb(hMonitor, hdcMonitor, lprcMonitor, dwData):
+            r = lprcMonitor.contents
+            monitors.append((r.left, r.top, r.right - r.left, r.bottom - r.top))
+            return 1
+        MONITORENUMPROC = ctypes.WINFUNCTYPE(
+            ctypes.c_int,
+            ctypes.c_ulong, ctypes.c_ulong,
+            ctypes.POINTER(ctypes.c_long * 4),
+            ctypes.c_double,
+        )
+        # Use a simpler struct approach
+        import ctypes.wintypes as wt
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", wt.LONG), ("top", wt.LONG),
+                        ("right", wt.LONG), ("bottom", wt.LONG)]
+        monitors2 = []
+        cb_type = ctypes.WINFUNCTYPE(wt.BOOL, wt.HMONITOR, wt.HDC, ctypes.POINTER(RECT), wt.LPARAM)
+        def _cb2(hm, hdc, lprect, data):
+            r = lprect.contents
+            monitors2.append((r.left, r.top, r.right - r.left, r.bottom - r.top))
+            return True
+        ctypes.windll.user32.EnumDisplayMonitors(None, None, cb_type(_cb2), 0)
+        if monitors2:
+            return monitors2
+    except Exception:
+        pass
+    return None   # caller will use tkinter fallback
+
+
+def get_screen_for_point(px, py, monitors):
+    """Return the (x, y, w, h) of the monitor that contains point (px, py).
+    If none contains it, return the closest one."""
+    if not monitors:
+        return None
+    # Check containment
+    for mx, my, mw, mh in monitors:
+        if mx <= px < mx + mw and my <= py < my + mh:
+            return (mx, my, mw, mh)
+    # Closest by centre distance
+    best, best_d = monitors[0], float("inf")
+    for m in monitors:
+        mx, my, mw, mh = m
+        cx, cy = mx + mw / 2, my + mh / 2
+        d = math.hypot(px - cx, py - cy)
+        if d < best_d:
+            best, best_d = m, d
+    return best
+
+
 def load_config():
     if os.path.exists(CONFIG_F):
         try:
@@ -254,18 +315,23 @@ class PetWindow:
         self.x = float(self.cfg.get("x", 100))
         self.y = float(self.cfg.get("y", 100))
 
+        # multi-monitor: cache monitor list and current screen bounds
+        self._monitors = get_monitors()   # list of (x, y, w, h) or None
+        self._current_screen = None       # (x, y, w, h) – updated on drag end & init
+
         self.pet_data: PetData = None
-        self.load_pet()
+        self.load_pet(initial=True)
         self.position_window()
         self.bind_events()
         self.start_state_machine()
 
     # ── Pet Loading ────────────────────────────────────────────────────────
-    def load_pet(self):
+    def load_pet(self, initial=False):
         name  = self.cfg["pet"]
         scale = self.cfg["scale"]
         self.pet_data = PetData(name, scale)
-        self._enter_state(STATE_IDLE)
+        # On very first load start in DYNAMIC; on reload start in IDLE
+        self._enter_state(STATE_DYNAMIC if initial else STATE_IDLE)
 
     def reload_pet(self):
         """Called when pet / scale / etc changes."""
@@ -277,13 +343,14 @@ class PetWindow:
             self._move_timer = None
         self._stop_mouse_follow_loop()
         self._flipped_cache.clear()
-        self.load_pet()
+        self.load_pet(initial=False)
         if self.cfg.get("mouse_follow"):
             self._start_mouse_follow_loop()
 
     # ── State Machine ──────────────────────────────────────────────────────
     def start_state_machine(self):
-        self._state_tick()
+        # Delay first tick by 5000ms so pet stays in DYNAMIC on startup
+        self.root.after(5000, self._state_tick)
         if self.cfg.get("mouse_follow"):
             self._start_mouse_follow_loop()
 
@@ -468,28 +535,53 @@ class PetWindow:
     # ── Movement Loop ──────────────────────────────────────────────────────
     def _movement_loop(self):
         if self.state == STATE_MOVE:
-            sw = self.root.winfo_screenwidth()
-            sh = self.root.winfo_screenheight()
             pw = max(self.canvas.winfo_width(), 1)
             ph = max(self.canvas.winfo_height(), 1)
 
             self.x += self.vx
             self.y += self.vy
 
-            # bounce off screen edges
-            if self.x < 0:
-                self.x = 0; self.vx = abs(self.vx); self.going_right = True
-            if self.x + pw > sw:
-                self.x = sw - pw; self.vx = -abs(self.vx); self.going_right = False
-            if self.y < 0:
-                self.y = 0; self.vy = abs(self.vy)
-            if self.y + ph > sh:
-                self.y = sh - ph; self.vy = -abs(self.vy)
+            # Get current screen bounds for bouncing
+            sx, sy, sw, sh = self._get_current_screen()
+
+            # Bounce off current screen edges
+            if self.x < sx:
+                self.x = sx; self.vx = abs(self.vx); self.going_right = True
+            if self.x + pw > sx + sw:
+                self.x = sx + sw - pw; self.vx = -abs(self.vx); self.going_right = False
+            if self.y < sy:
+                self.y = sy; self.vy = abs(self.vy)
+            if self.y + ph > sy + sh:
+                self.y = sy + sh - ph; self.vy = -abs(self.vy)
 
             self.position_window()
         self.root.after(16, self._movement_loop)
 
     # ── Window Helpers ─────────────────────────────────────────────────────
+    def _update_current_screen(self):
+        """Detect which screen the pet is currently on and cache it."""
+        pw = max(self.canvas.winfo_width(), 1)
+        ph = max(self.canvas.winfo_height(), 1)
+        cx = int(self.x + pw / 2)
+        cy = int(self.y + ph / 2)
+        if self._monitors:
+            self._current_screen = get_screen_for_point(cx, cy, self._monitors)
+        else:
+            # Fallback: use tkinter primary screen
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            self._current_screen = (0, 0, sw, sh)
+
+    def _get_current_screen(self):
+        """Return current screen bounds, initialising if necessary."""
+        if self._current_screen is None:
+            self._update_current_screen()
+        if self._current_screen is None:
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+            return (0, 0, sw, sh)
+        return self._current_screen
+
     def position_window(self):
         self.root.geometry(f"+{int(self.x)}+{int(self.y)}")
 
@@ -516,6 +608,8 @@ class PetWindow:
         self.position_window()
 
     def _on_drag_end(self, event):
+        # Update which screen the pet is now on (user may have dragged to another monitor)
+        self._update_current_screen()
         self._enter_state(self.prev_state if self.prev_state != STATE_DRAG else STATE_IDLE)
         # resume mouse follow loop after drag
         if self.cfg.get("mouse_follow"):
@@ -564,6 +658,8 @@ class PetWindow:
 
     def run(self):
         self._movement_loop()
+        # Initialise current screen after window is mapped (canvas has real size)
+        self.root.after(100, self._update_current_screen)
         self.root.mainloop()
 
     def destroy(self):

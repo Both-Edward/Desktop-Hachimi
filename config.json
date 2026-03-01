@@ -3,8 +3,8 @@
   "scale": 0.5,
   "opacity": 1.0,
   "speed": 3,
-  "mouse_follow": true,
+  "mouse_follow": false,
   "always_on_top": true,
-  "x": 1068,
-  "y": 579
+  "x": 997,
+  "y": 394
 }
