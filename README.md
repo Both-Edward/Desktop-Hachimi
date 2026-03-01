@@ -93,6 +93,7 @@ If there are multiple idle/move gifs, the length of the weight array corresponds
 ```
 
 When `default_dir` becomes `"left"`: moving to the left does not flip the image; moving to the right flips the image.
+
 ---
 
 ## System Tray Menu Description
