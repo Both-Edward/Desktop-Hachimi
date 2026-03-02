@@ -2,3 +2,5 @@ Pillow>=10.0.0
 pystray>=0.19.4
 screeninfo>=0.8.1
 numpy>=1.24.0
+pygame>=2.5.0
+send2trash>=1.8.0
