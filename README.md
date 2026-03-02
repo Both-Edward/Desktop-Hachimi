@@ -10,17 +10,28 @@
     <img src="/ico/Desktop Hachimi ico.ico" width="150" height="150" />
 </div>
 
-Desktop Hachimi is a feature-rich desktop pet application that adds vibrancy and fun to your Windows desktop. This adorable digital companion moves freely on your desktop, responding to your interactions and bringing life to your digital workspace.
+Desktop Hachimi is a feature-rich desktop pet application that adds vibrancy and fun to your Windows desktop. This adorable digital companion moves freely on your desktop, responds to your interactions, plays music alongside you, and brings life to your digital workspace.
 
 ---
 
-## Install dependencies
+## Install Dependencies
 
 ```bash
-pip install Pillow pystray
+pip install -r requirements.txt
 ```
 
-> **Notice**: Python 3.8+ needed
+Full dependency list:
+
+```
+Pillow >= 10.0.0
+pystray >= 0.19.4
+screeninfo >= 0.8.1
+numpy >= 1.24.0
+pygame >= 2.0.0
+send2trash >= 1.8.2
+```
+
+> **Notice**: Python 3.8+ required
 
 ---
 
@@ -32,31 +43,97 @@ python main.py
 
 ---
 
+## Features
+
+### 🐾 Pet States
+
+The pet switches between four states automatically and in response to user actions:
+
+| State | Description |
+|-------|-------------|
+| **Dynamic** | Lively animation — triggered on launch, by music playback, or by mouse proximity |
+| **Idle** | Resting animation — plays when the pet is stationary |
+| **Move** | Walking animation — pet roams freely around the screen |
+| **Drag** | Drag animation — plays while you drag the pet with the mouse |
+
+State transitions happen on a 5-second timer according to configurable weights (see `weights.json`).
+
+### 🎵 Music-Reactive Mode
+
+The built-in music player is linked directly to the pet's behavior:
+
+- When a song **starts playing**, the pet immediately enters the **Dynamic** state and stays there for the entire duration of the track.
+- When the song **stops or is paused**, the pet is released and randomly transitions to one of its other states (Idle, Move, or Dynamic) based on the configured weights.
+- This lock is respected by all other state systems — the 5-second autonomous timer, mouse-follow logic, and movement triggers will not override the Dynamic state while music is playing.
+
+### 🎵 Music Player
+
+Open via right-click menu → **Music Player**, or from the system tray.
+
+- Supports MP3, WAV, OGG, FLAC, AAC, M4A, WMA
+- Playback modes: Loop All / Loop One / Play Once
+- Controls: Previous, Play/Pause, Next
+- Double-click a track in the playlist to jump to it
+- Add tracks from anywhere on your computer (copied into the `Music/` folder)
+- Delete tracks to the recycle bin
+
+### 🖱️ Mouse Follow
+
+When enabled, the pet chases your cursor around the screen. As the cursor approaches, the pet switches to the Dynamic state; as it moves away, the pet transitions back to moving.
+
+### 🎨 Pet Customization
+
+- **Switch Pet** — choose from all pets in the `Pets/` folder
+- **Create Pet** — built-in wizard to assemble a new pet from your own GIFs and icons
+- **Delete Pet** — move a pet folder to the recycle bin from the menu
+- **Size** — scale from x0.1 to x2.0 in steps of 0.1
+- **Opacity** — 10% to 100% in steps of 10%
+- **Speed** — 10 levels
+- **State Weights** — adjust how often each state appears via the weight editor
+- **Motion Flip** — configure per-move-variant whether the sprite flips horizontally when travelling in a non-default direction
+
+### 🖥️ Display
+
+- **Always on Top** — keep the pet above all other windows
+- **Multi-monitor support** — the pet stays within the bounds of whichever screen it is on
+- **Position memory** — window position is saved and restored between sessions
+
+### ⚙️ System
+
+- **Autostart** — launch with Windows
+- **System tray icon** — full menu accessible without opening any window
+- **Check for updates** — built into the About dialog
+
+---
+
 ## Directory Structure
 
 ```
 Desktop-Hachimi/
 ├── main.py
 ├── requirements.txt
-├── config.json          ← Automatically generated and saved user settings
-├── ico/
-│   └── Desktop Hachimi ico.ico   ← Software icon
+├── config.json              <- Auto-generated user settings
+├── core/                    <- Core logic (config, GIF loader, pet data)
+├── ui/                      <- UI components (pet window, music player)
+├── compat/                  <- Platform helpers (autostart, DPI, trash)
+├── ico/                     <- UI and window icons
+├── Music/                   <- Music folder (add your tracks here)
 └── Pets/
-    └── Ameath/          ← Default desktop pet folder
-        ├── Ameath.ico   ← Desktop pet icon
-        ├── Ameath.gif   ← Dynamic State
-        ├── drag.gif     ← Drag State
-        ├── idle.gif     ← Non-movement State (single image)
-        │   Or idle1.gif, idle2.gif ...
-        ├── move.gif     ← Movement Status (single image)
-        │   Or move1.gif, move2.gif ...
-        ├── weights.json ← State Weight
-        └── flip.json    ← Reversed Motion Direction conDiguration (optional)
+    └── Ameath/              <- Default pet folder
+        ├── Ameath.ico       <- Pet icon
+        ├── Ameath.gif       <- Dynamic state animation
+        ├── drag.gif         <- Drag state animation
+        ├── idle.gif         <- Idle state (single file)
+        │   or idle1.gif, idle2.gif ...
+        ├── move.gif         <- Move state (single file)
+        │   or move1.gif, move2.gif ...
+        ├── weights.json     <- State weights
+        └── flip.json        <- Motion flip config (optional)
 ```
 
 ---
 
-## weights.json Format Example
+## weights.json Format
 
 ```json
 {
@@ -66,7 +143,7 @@ Desktop-Hachimi/
 }
 ```
 
-If there are multiple idle/move gifs, the length of the weight array corresponds to the number of files.
+If there are multiple idle/move GIFs, the weight array length must match the number of files:
 
 ```json
 {
@@ -78,7 +155,8 @@ If there are multiple idle/move gifs, the length of the weight array corresponds
 
 ---
 
-## flip.json Format Example
+## flip.json Format
+
 ```json
 {
   "move": {
@@ -92,29 +170,34 @@ If there are multiple idle/move gifs, the length of the weight array corresponds
 }
 ```
 
-When `default_dir` becomes `"left"`: moving to the left does not flip the image; moving to the right flips the image.
+When `default_dir` is `"left"`: moving left does not flip the sprite; moving right flips it.
 
 ---
 
-## System Tray Menu Description
+## Right-Click Context Menu
 
-Right-clicking the taskbar tray icon allows you to:
+Right-clicking the pet or the system tray icon opens the menu:
 
-| Menu Items | Functions |
-|--------|------|
-| Switch Pet | Select from all pets under Pets/
-| Pet Size | x0.1 ~ x2.0, increments of 0.1 |
-| Transparency | 10% ~ 100%, increments of 10% |
-| Speed ​​| 1 ~ 10 levels |
-| Mouse Follow | When enabled, the pet follows the mouse movement |
-| Top View | The pet is displayed on top of all windows |
-| Create Pet | Open the creation wizard |
-| About | Software Information and Updates |
-| Exit | Close Program |
+| Menu Item | Function |
+|-----------|----------|
+| Switch Pet | Choose from all pets in `Pets/` |
+| Delete Pet | Move a pet folder to the recycle bin |
+| Pet Size | x0.1 ~ x2.0, step 0.1 |
+| Opacity | 10% ~ 100%, step 10% |
+| Speed | Levels 1 ~ 10 |
+| Mouse Follow | Pet follows the cursor when enabled |
+| Always on Top | Pet stays above all other windows |
+| Launch on Startup | Register/remove Windows autostart entry |
+| Music Player | Open the music player window |
+| Edit State Weights | Adjust per-state probability weights |
+| Edit Motion Flip | Configure sprite flip per move variant |
+| Create Pet | Open the pet creation wizard |
+| About | Software info and update check |
+| Exit | Close the program |
 
 ---
 
-## Future Adaptation Plans
+## Future Plans
 
 - [ ] LLM Agent
 - [ ] TTS Agent
