@@ -6,10 +6,10 @@ import os
 import json
 
 # ── App Info ──────────────────────────────────────────────────────────────────
-VERSION      = "2.0.0"
+VERSION      = "1.1.0"
 APP_NAME     = "Desktop Hachimi"
 AUTHOR       = "Edward"
-AUTHOR_EMAIL = "2651671851@qq.com"
+AUTHOR_EMAIL = "lingzhanye4@gmail.com"
 GITHUB_URL   = "https://github.com/Edward-EH-Holmes/Desktop-Hachimi"
 GITHUB_RELEASES = "https://github.com/Edward-EH-Holmes/Desktop-Hachimi/releases"
 

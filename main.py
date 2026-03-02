@@ -1,5 +1,5 @@
 """
-Desktop Hachimi – main entry point v2.0.0
+Desktop Hachimi – main entry point v1.1.0
 Refactored: frontend/backend separation for Windows / Linux (KDE) / macOS support.
   core/            – pure logic (config, gif loading, pet data)
   platform_utils/  – OS-specific helpers (autostart, DPI awareness, trash)
@@ -137,6 +137,10 @@ class PetWindow:
         self._music_dialog   = None
 
         self.pet_data: PetData = None
+        # music-driven state
+        self._music_was_playing: bool = False  # tracks last known playback state
+        self._music_lock: bool = False          # True while music is forcing dynamic
+
         self.load_pet(initial=True)
         self.position_window()
         self.bind_events()
@@ -161,12 +165,38 @@ class PetWindow:
     # ── State Machine ──────────────────────────────────────────────────────
     def start_state_machine(self):
         self.root.after(5000, self._state_tick)
+        self.root.after(500,  self._music_state_tick)   # start music listener
         if self.cfg.get("mouse_follow"):
             self._start_mouse_follow_loop()
 
+    def _music_state_tick(self):
+        """Poll the shared MusicPlayer every 500 ms.
+        • While music is playing  → force / keep STATE_DYNAMIC.
+        • When music just stopped → release the lock and pick a random state.
+        """
+        player = self._music_player           # may be None before dialog opened
+        is_playing = bool(player and player.playing)
+
+        if is_playing:
+            # Music is playing: lock pet in dynamic state
+            if not self._music_lock:
+                self._music_lock = True
+            if self.state != STATE_DYNAMIC and self.state != STATE_DRAG:
+                self._enter_state(STATE_DYNAMIC)
+        else:
+            if self._music_lock:
+                # Music just stopped – release lock and randomise state
+                self._music_lock = False
+                if self.state != STATE_DRAG:
+                    self._autonomous_logic()
+
+        self._music_was_playing = is_playing
+        self.root.after(500, self._music_state_tick)
+
     def _state_tick(self):
         if self.state != STATE_DRAG and not self.cfg.get("mouse_follow"):
-            self._autonomous_logic()
+            if not self._music_lock:           # don't interrupt music-driven state
+                self._autonomous_logic()
         self.root.after(5000, self._state_tick)
 
     def _autonomous_logic(self):
@@ -238,7 +268,7 @@ class PetWindow:
                 self._cancel_mf_leave_timer()
                 self._mf_leave_id = self.root.after(1000, self._mf_leave_dynamic)
             else:
-                if self.state != STATE_MOVE:
+                if self.state != STATE_MOVE and not self._music_lock:
                     self._enter_state(STATE_MOVE)
                 speed = self.cfg.get("speed", 3)
                 d = max(dist, 1)
@@ -250,7 +280,7 @@ class PetWindow:
     def _mf_leave_dynamic(self):
         self._mf_leave_id = None
         if self.cfg.get("mouse_follow") and self.state != STATE_DRAG:
-            if self.state != STATE_MOVE:
+            if self.state != STATE_MOVE and not self._music_lock:
                 self._enter_state(STATE_MOVE)
 
     # ── State Entry ────────────────────────────────────────────────────────
@@ -532,65 +562,117 @@ class PetWindow:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class WeightEditorDialog:
+    _BG      = "#2b1a2e"
+    _CARD_BG = "#3d2445"
+    _PINK    = "#ffb6d5"
+    _WHITE   = "#ffffff"
+    _GRAY    = "#9c7aaa"
+    _GREEN   = "#6fcf97"
+
     def __init__(self, parent_root, pet_win: PetWindow):
         self.pet_win = pet_win
         self.win = tk.Toplevel(parent_root)
         self.win.title("调整状态权重")
-        set_window_icon(self.win); self.win.resizable(False, False); self.win.grab_set()
+        self.win.configure(bg=self._BG)
+        set_window_icon(self.win); self.win.resizable(False, False); 
         self._build_ui()
 
+    def _label(self, parent, text, fg=None, font=None, **kw):
+        return tk.Label(parent, text=text, bg=self._BG, fg=fg or self._WHITE,
+                        font=font or _FONT_NORMAL, **kw)
+
+    def _card_label(self, parent, text, fg=None, font=None, **kw):
+        return tk.Label(parent, text=text, bg=self._CARD_BG, fg=fg or self._WHITE,
+                        font=font or _FONT_NORMAL, **kw)
+
+    def _spinbox(self, parent, var):
+        return tk.Spinbox(parent, from_=1, to=999, textvariable=var, width=6,
+                          bg=self._CARD_BG, fg=self._PINK, insertbackground=self._PINK,
+                          buttonbackground=self._CARD_BG, relief="flat",
+                          highlightthickness=1, highlightbackground=self._GRAY,
+                          font=_FONT_NORMAL)
+
     def _build_ui(self):
-        win = self.win; pd = self.pet_win.pet_data; pad = {"padx": 10, "pady": 5}
-        tk.Label(win, text=f"桌宠：{pd.name}", font=_FONT_BOLD).grid(row=0, column=0, columnspan=3, pady=(10,4))
-        tk.Label(win, text="说明：权重为正整数，值越大该状态出现概率越高。",
-                 fg="gray", font=_FONT_SMALL).grid(row=1, column=0, columnspan=3, padx=10, pady=(0,8))
-        row = 2
-        tk.Label(win, text="动感状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+        win = self.win
+        pd  = self.pet_win.pet_data
+        pad = {"padx": 10, "pady": 5}
+
+        # Title
+        tk.Label(win, text="♪ 调整状态权重", bg=self._BG, fg=self._PINK,
+                 font=("Microsoft YaHei UI", 13, "bold")).pack(pady=(14, 2))
+        tk.Label(win, text=f"桌宠：{pd.name}", bg=self._BG, fg=self._GRAY,
+                 font=_FONT_SMALL).pack()
+
+        # Card
+        card = tk.Frame(win, bg=self._CARD_BG, padx=16, pady=10)
+        card.pack(fill="x", padx=16, pady=(10, 4))
+
+        self._card_label(card, "说明：权重为正整数，值越大该状态出现概率越高。",
+                          fg=self._GRAY, font=_FONT_SMALL).grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+
+        row = 1
+        self._card_label(card, "动感状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
         self._dyn_var = tk.IntVar(value=pd.dynamic_weight)
-        tk.Spinbox(win, from_=1, to=999, textvariable=self._dyn_var, width=6).grid(row=row, column=1, sticky="w", **pad)
+        self._spinbox(card, self._dyn_var).grid(row=row, column=1, sticky="w", **pad)
         row += 1
-        ttk.Separator(win, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", padx=10, pady=4); row += 1
+
+        tk.Frame(card, bg=self._GRAY, height=1).grid(row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=4); row += 1
+
         self._idle_vars = []
         idle_count = len(pd.idle_variants)
         if idle_count == 0:
-            tk.Label(win, text="非移动状态：（无图）", fg="gray").grid(row=row, column=0, columnspan=3, **pad); row += 1
+            self._card_label(card, "非移动状态：（无图）", fg=self._GRAY).grid(
+                row=row, column=0, columnspan=3, **pad); row += 1
         elif idle_count == 1:
-            tk.Label(win, text="非移动状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+            self._card_label(card, "非移动状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
             v = tk.IntVar(value=pd.idle_weights[0] if pd.idle_weights else 2)
-            tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(row=row, column=1, sticky="w", **pad)
+            self._spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
             self._idle_vars.append(v); row += 1
         else:
-            tk.Label(win, text="非移动状态（多图）：", font=_FONT_BOLD).grid(row=row, column=0, columnspan=3, sticky="w", padx=10); row += 1
+            self._card_label(card, "非移动状态（多图）：", font=_FONT_BOLD).grid(
+                row=row, column=0, columnspan=3, sticky="w", padx=10); row += 1
             for i in range(idle_count):
-                tk.Label(win, text=f"  idle{i+1} 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+                self._card_label(card, f"  idle{i+1} 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
                 v = tk.IntVar(value=pd.idle_weights[i] if i < len(pd.idle_weights) else 2)
-                tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(row=row, column=1, sticky="w", **pad)
+                self._spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
                 self._idle_vars.append(v); row += 1
-        ttk.Separator(win, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", padx=10, pady=4); row += 1
+
+        tk.Frame(card, bg=self._GRAY, height=1).grid(row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=4); row += 1
+
         self._move_vars = []
         move_count = len(pd.move_variants)
         if move_count == 0:
-            tk.Label(win, text="移动状态：（无图）", fg="gray").grid(row=row, column=0, columnspan=3, **pad); row += 1
+            self._card_label(card, "移动状态：（无图）", fg=self._GRAY).grid(
+                row=row, column=0, columnspan=3, **pad); row += 1
         elif move_count == 1:
-            tk.Label(win, text="移动状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+            self._card_label(card, "移动状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
             v = tk.IntVar(value=pd.move_weights[0] if pd.move_weights else 1)
-            tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(row=row, column=1, sticky="w", **pad)
+            self._spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
             self._move_vars.append(v); row += 1
         else:
-            tk.Label(win, text="移动状态（多图）：", font=_FONT_BOLD).grid(row=row, column=0, columnspan=3, sticky="w", padx=10); row += 1
+            self._card_label(card, "移动状态（多图）：", font=_FONT_BOLD).grid(
+                row=row, column=0, columnspan=3, sticky="w", padx=10); row += 1
             for i in range(move_count):
-                tk.Label(win, text=f"  move{i+1} 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+                self._card_label(card, f"  move{i+1} 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
                 v = tk.IntVar(value=pd.move_weights[i] if i < len(pd.move_weights) else 1)
-                tk.Spinbox(win, from_=1, to=999, textvariable=v, width=6).grid(row=row, column=1, sticky="w", **pad)
+                self._spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
                 self._move_vars.append(v); row += 1
-        self._preview_label = tk.Label(win, text="", fg="#555", font=("Courier", 8))
-        self._preview_label.grid(row=row, column=0, columnspan=3, padx=10, pady=(4,0)); row += 1
+
         self._update_preview()
         for var in [self._dyn_var] + self._idle_vars + self._move_vars:
             var.trace_add("write", lambda *_: self._update_preview())
-        bf = tk.Frame(win); bf.grid(row=row, column=0, columnspan=3, pady=10)
-        tk.Button(bf, text="保存并应用", bg="#4caf50", fg="white", command=self._save).pack(side="left", padx=8)
-        tk.Button(bf, text="取消", command=self.win.destroy).pack(side="left", padx=8)
+
+        self._preview_label = tk.Label(win, text="", bg=self._BG, fg=self._GRAY,
+                                       font=("Microsoft YaHei UI", 8))
+        self._preview_label.pack(padx=10, pady=(4, 0))
+
+        bf = tk.Frame(win, bg=self._BG)
+        bf.pack(pady=12)
+        tk.Button(bf, text="保存并应用", bg="#6fcf97", fg="#1a0a20",
+                  font=_FONT_BOLD, relief="flat", padx=12, command=self._save).pack(side="left", padx=8)
+        tk.Button(bf, text="取消", bg=self._CARD_BG, fg=self._GRAY,
+                  font=_FONT_NORMAL, relief="flat", padx=12, command=self.win.destroy).pack(side="left", padx=8)
 
     def _safe_int(self, var, fallback=1):
         try: return max(1, int(var.get()))
@@ -601,7 +683,8 @@ class WeightEditorDialog:
         iw = sum(self._safe_int(v) for v in self._idle_vars) if self._idle_vars else 0
         mw = sum(self._safe_int(v) for v in self._move_vars) if self._move_vars else 0
         total = dw + iw + mw
-        if total == 0: self._preview_label.config(text=""); return
+        if total == 0:
+            self._preview_label.config(text=""); return
         self._preview_label.config(text="  概率预览：" + "  |  ".join([
             f"动感 {dw/total*100:.1f}%", f"非移动 {iw/total*100:.1f}%", f"移动 {mw/total*100:.1f}%"]))
 
@@ -617,15 +700,22 @@ class WeightEditorDialog:
         if self._move_vars: existing["move_weight"] = [self._safe_int(v) for v in self._move_vars]
         with open(path, "w", encoding="utf-8") as f: json.dump(existing, f, ensure_ascii=False, indent=2)
         self.pet_win.reload_pet()
-        messagebox.showinfo("成功", "权重已保存并应用！", parent=self.win); self.win.destroy()
+        messagebox.showinfo("✅ 成功", "权重已保存并应用！", parent=self.win); self.win.destroy()
 
 
 class FlipEditorDialog:
+    _BG      = "#2b1a2e"
+    _CARD_BG = "#3d2445"
+    _PINK    = "#ffb6d5"
+    _WHITE   = "#ffffff"
+    _GRAY    = "#9c7aaa"
+
     def __init__(self, parent_root, pet_win: PetWindow):
         self.pet_win = pet_win
         self.win = tk.Toplevel(parent_root)
         self.win.title("调整运动方向反转")
-        set_window_icon(self.win); self.win.resizable(False, False); self.win.grab_set()
+        self.win.configure(bg=self._BG)
+        set_window_icon(self.win); self.win.resizable(False, False); 
         self._rows: list[dict] = []
         self._build_ui()
 
@@ -634,38 +724,61 @@ class FlipEditorDialog:
         return "move" if total == 1 else f"move{index+1}"
 
     def _build_ui(self):
-        win = self.win; pd = self.pet_win.pet_data; pad = {"padx": 10, "pady": 5}
-        tk.Label(win, text=f"桌宠：{pd.name}", font=("Helvetica",12,"bold")).grid(row=0, column=0, columnspan=4, pady=(12,2))
-        tk.Label(win,
+        win = self.win; pd = self.pet_win.pet_data
+
+        tk.Label(win, text="♪ 调整运动方向反转", bg=self._BG, fg=self._PINK,
+                 font=("Microsoft YaHei UI", 13, "bold")).pack(pady=(14, 2))
+        tk.Label(win, text=f"桌宠：{pd.name}", bg=self._BG, fg=self._GRAY,
+                 font=_FONT_SMALL).pack()
+
+        info = tk.Frame(win, bg=self._CARD_BG, padx=14, pady=8)
+        info.pack(fill="x", padx=16, pady=(8, 4))
+        tk.Label(info,
             text='说明：启用后，桌宠向"非默认方向"运动时图片会水平翻转。\n  默认方向=左 → 向左走不翻转，向右走翻转\n  默认方向=右 → 向右走不翻转，向左走翻转',
-            fg="#555", justify="left", font=("Helvetica",8)).grid(row=1, column=0, columnspan=4, padx=12, pady=(0,8), sticky="w")
+            bg=self._CARD_BG, fg=self._GRAY, justify="left", font=_FONT_SMALL).pack(anchor="w")
+
         mc = len(pd.move_variants)
         if mc == 0:
-            tk.Label(win, text="当前桌宠没有移动状态图，无法配置。", fg="gray").grid(row=2, column=0, columnspan=4, **pad)
-            tk.Button(win, text="关闭", command=self.win.destroy).grid(row=3, column=0, columnspan=4, pady=10); return
-        for lbl, col in [("图片",0),("启用反转",1),("默认朝向",2),("当前效果预览",3)]:
-            tk.Label(win, text=lbl, font=("Helvetica",9,"bold"), width=(10 if col==0 else None)).grid(row=2, column=col, **pad)
-        ttk.Separator(win, orient="horizontal").grid(row=3, column=0, columnspan=4, sticky="ew", padx=8, pady=2)
+            tk.Label(win, text="当前桌宠没有移动状态图，无法配置。",
+                     bg=self._BG, fg=self._GRAY).pack(padx=16, pady=8)
+            tk.Button(win, text="关闭", bg=self._CARD_BG, fg=self._GRAY,
+                      relief="flat", padx=12, command=self.win.destroy).pack(pady=10)
+            return
+
+        card = tk.Frame(win, bg=self._CARD_BG, padx=12, pady=10)
+        card.pack(fill="x", padx=16, pady=4)
+        pad = {"padx": 8, "pady": 5}
+
+        for lbl, col in [("图片", 0), ("启用反转", 1), ("默认朝向", 2), ("当前效果预览", 3)]:
+            tk.Label(card, text=lbl, bg=self._CARD_BG, fg=self._PINK,
+                     font=_FONT_BOLD, width=(10 if col == 0 else None)).grid(row=0, column=col, **pad)
+        tk.Frame(card, bg=self._GRAY, height=1).grid(row=1, column=0, columnspan=4, sticky="ew", padx=4, pady=2)
+
         for i in range(mc):
             key = self._variant_key(i, mc)
-            ex = pd.move_flip_info.get(key, {})
-            ev = tk.BooleanVar(value=ex.get("enabled", False))
-            dv = tk.StringVar(value=ex.get("default_dir", "left"))
-            r = 4 + i
-            tk.Label(win, text="move.gif" if mc==1 else f"move{i+1}.gif", anchor="e").grid(row=r, column=0, sticky="e", **pad)
-            tk.Checkbutton(win, variable=ev, command=self._make_row_refresh(i)).grid(row=r, column=1, **pad)
-            cb = ttk.Combobox(win, textvariable=dv, values=["left","right"], width=6, state="readonly")
+            ex  = pd.move_flip_info.get(key, {})
+            ev  = tk.BooleanVar(value=ex.get("enabled", False))
+            dv  = tk.StringVar(value=ex.get("default_dir", "left"))
+            r   = 2 + i
+            tk.Label(card, text="move.gif" if mc == 1 else f"move{i+1}.gif",
+                     bg=self._CARD_BG, fg=self._WHITE, anchor="e").grid(row=r, column=0, sticky="e", **pad)
+            tk.Checkbutton(card, variable=ev, bg=self._CARD_BG, fg=self._PINK,
+                           selectcolor=self._BG, activebackground=self._CARD_BG,
+                           command=self._make_row_refresh(i)).grid(row=r, column=1, **pad)
+            cb = ttk.Combobox(card, textvariable=dv, values=["left", "right"], width=6, state="readonly")
             cb.grid(row=r, column=2, **pad)
             cb.bind("<<ComboboxSelected>>", lambda e, idx=i: self._refresh_preview(idx))
-            pl = tk.Label(win, text="", fg="#337", width=22, anchor="w", font=("Helvetica",8))
-            pl.grid(row=r, column=3, padx=(0,12))
-            self._rows.append({"key":key,"enabled_var":ev,"dir_var":dv,"preview_lbl":pl})
+            pl = tk.Label(card, text="", bg=self._CARD_BG, fg="#b0b8ff", width=24, anchor="w", font=_FONT_SMALL)
+            pl.grid(row=r, column=3, padx=(0, 8))
+            self._rows.append({"key": key, "enabled_var": ev, "dir_var": dv, "preview_lbl": pl})
             self._refresh_preview(i)
-        sr = 4+mc
-        ttk.Separator(win, orient="horizontal").grid(row=sr, column=0, columnspan=4, sticky="ew", padx=8, pady=(8,0))
-        bf = tk.Frame(win); bf.grid(row=sr+1, column=0, columnspan=4, pady=10)
-        tk.Button(bf, text="保存并应用", bg="#4caf50", fg="white", command=self._save).pack(side="left", padx=8)
-        tk.Button(bf, text="取消", command=self.win.destroy).pack(side="left", padx=8)
+
+        bf = tk.Frame(win, bg=self._BG)
+        bf.pack(pady=12)
+        tk.Button(bf, text="保存并应用", bg="#6fcf97", fg="#1a0a20",
+                  font=_FONT_BOLD, relief="flat", padx=12, command=self._save).pack(side="left", padx=8)
+        tk.Button(bf, text="取消", bg=self._CARD_BG, fg=self._GRAY,
+                  relief="flat", padx=12, command=self.win.destroy).pack(side="left", padx=8)
 
     def _make_row_refresh(self, idx):
         return lambda: self._refresh_preview(idx)
@@ -689,39 +802,88 @@ class FlipEditorDialog:
             existing[row["key"]] = {"enabled": row["enabled_var"].get(), "default_dir": row["dir_var"].get()}
         with open(path, "w", encoding="utf-8") as f: json.dump(existing, f, ensure_ascii=False, indent=2)
         self.pet_win.reload_pet()
-        messagebox.showinfo("成功", "运动方向反转设置已保存并应用！", parent=self.win); self.win.destroy()
+        messagebox.showinfo("✅ 成功", "运动方向反转设置已保存并应用！", parent=self.win); self.win.destroy()
 
 
 class PetCreatorDialog:
     def __init__(self, parent_root):
         self.win = tk.Toplevel(parent_root)
         self.win.title("创建桌宠"); set_window_icon(self.win)
-        self.win.resizable(False, False); self.win.grab_set()
+        self.win.configure(bg=self._BG)
+        self.win.resizable(False, False); 
         self._files = {"icon": tk.StringVar(), "dynamic": tk.StringVar(), "drag": tk.StringVar()}
         self._idle_entries = []; self._move_entries = []
         self._build_ui()
 
+    _BG      = "#2b1a2e"
+    _CARD_BG = "#3d2445"
+    _PINK    = "#ffb6d5"
+    _WHITE   = "#ffffff"
+    _GRAY    = "#9c7aaa"
+
+    def _entry(self, parent, var, width=24):
+        return tk.Entry(parent, textvariable=var, width=width,
+                        bg=self._CARD_BG, fg=self._WHITE, insertbackground=self._WHITE,
+                        relief="flat", highlightthickness=1, highlightbackground=self._GRAY)
+
+    def _btn(self, parent, text, command, accent=False):
+        if accent:
+            return tk.Button(parent, text=text, command=command, bg="#6fcf97", fg="#1a0a20",
+                             font=_FONT_BOLD, relief="flat", padx=10)
+        return tk.Button(parent, text=text, command=command, bg=self._CARD_BG, fg=self._PINK,
+                         relief="flat", padx=8)
+
+    def _spinbox(self, parent, var, width=4):
+        return tk.Spinbox(parent, from_=1, to=99, textvariable=var, width=width,
+                          bg=self._CARD_BG, fg=self._PINK, insertbackground=self._PINK,
+                          buttonbackground=self._CARD_BG, relief="flat",
+                          highlightthickness=1, highlightbackground=self._GRAY)
+
+    def _label(self, parent, text, fg=None):
+        return tk.Label(parent, text=text, bg=self._CARD_BG, fg=fg or self._WHITE, font=_FONT_NORMAL)
+
     def _build_ui(self):
-        win = self.win; pad = {"padx":8,"pady":4}
-        tk.Label(win, text="桌宠名:").grid(row=0, column=0, sticky="e", **pad)
+        win = self.win
+        pad = {"padx": 8, "pady": 4}
+
+        tk.Label(win, text="♪ 创建桌宠", bg=self._BG, fg=self._PINK,
+                 font=("Microsoft YaHei UI", 13, "bold")).pack(pady=(14, 6))
+
+        card = tk.Frame(win, bg=self._CARD_BG, padx=14, pady=10)
+        card.pack(fill="x", padx=16, pady=4)
+
+        self._label(card, "桌宠名:").grid(row=0, column=0, sticky="e", **pad)
         self.name_var = tk.StringVar()
-        tk.Entry(win, textvariable=self.name_var, width=24).grid(row=0, column=1, columnspan=2, sticky="w", **pad)
-        for row, key, label in [(1,"icon","桌宠图标(.ico):"),(2,"dynamic","动感状态(.gif):"),(3,"drag","拖拽状态(.gif):")]:
-            ext = "*.ico" if key=="icon" else "*.gif"
-            tk.Label(win, text=label).grid(row=row, column=0, sticky="e", **pad)
-            tk.Entry(win, textvariable=self._files[key], width=24).grid(row=row, column=1, **pad)
-            tk.Button(win, text="浏览", command=lambda k=key, e=ext: self._browse(k, [(k.upper(), e)])).grid(row=row, column=2, **pad)
-        tk.Label(win, text="权重:").grid(row=2, column=3, **pad)
+        self._entry(card, self.name_var).grid(row=0, column=1, columnspan=2, sticky="w", **pad)
+
+        for row, key, label in [(1, "icon", "桌宠图标(.ico):"), (2, "dynamic", "动感状态(.gif):"), (3, "drag", "拖拽状态(.gif):")]:
+            ext = "*.ico" if key == "icon" else "*.gif"
+            self._label(card, label).grid(row=row, column=0, sticky="e", **pad)
+            self._entry(card, self._files[key]).grid(row=row, column=1, **pad)
+            self._btn(card, "浏览", lambda k=key, e=ext: self._browse(k, [(k.upper(), e)])).grid(row=row, column=2, **pad)
+
+        self._label(card, "动感权重:").grid(row=2, column=3, **pad)
         self.dyn_weight = tk.IntVar(value=3)
-        tk.Spinbox(win, from_=1, to=99, textvariable=self.dyn_weight, width=4).grid(row=2, column=4, **pad)
-        tk.Label(win, text="─── 非移动状态(idle) ───").grid(row=4, column=0, columnspan=5, **pad)
-        self._idle_frame = tk.Frame(win); self._idle_frame.grid(row=5, column=0, columnspan=5, **pad); self._add_idle_row()
-        tk.Button(win, text="+ 添加idle图", command=self._add_idle_row).grid(row=6, column=0, columnspan=2, **pad)
-        tk.Label(win, text="─── 移动状态(move) ───").grid(row=7, column=0, columnspan=5, **pad)
-        self._move_frame = tk.Frame(win); self._move_frame.grid(row=8, column=0, columnspan=5, **pad); self._add_move_row()
-        tk.Button(win, text="+ 添加move图", command=self._add_move_row).grid(row=9, column=0, columnspan=2, **pad)
-        tk.Button(win, text="保存", command=self._save, bg="#4caf50", fg="white").grid(row=10, column=3, **pad)
-        tk.Button(win, text="取消", command=self.win.destroy).grid(row=10, column=4, **pad)
+        self._spinbox(card, self.dyn_weight).grid(row=2, column=4, **pad)
+
+        tk.Label(win, text="── 非移动状态(idle) ──", bg=self._BG, fg=self._GRAY,
+                 font=_FONT_SMALL).pack(pady=(8, 2))
+        self._idle_frame = tk.Frame(win, bg=self._CARD_BG)
+        self._idle_frame.pack(fill="x", padx=16)
+        self._add_idle_row()
+        self._btn(win, "+ 添加idle图", self._add_idle_row).pack(pady=4)
+
+        tk.Label(win, text="── 移动状态(move) ──", bg=self._BG, fg=self._GRAY,
+                 font=_FONT_SMALL).pack(pady=(6, 2))
+        self._move_frame = tk.Frame(win, bg=self._CARD_BG)
+        self._move_frame.pack(fill="x", padx=16)
+        self._add_move_row()
+        self._btn(win, "+ 添加move图", self._add_move_row).pack(pady=4)
+
+        bf = tk.Frame(win, bg=self._BG)
+        bf.pack(pady=12)
+        self._btn(bf, "保存", self._save, accent=True).pack(side="left", padx=8)
+        self._btn(bf, "取消", self.win.destroy).pack(side="left", padx=8)
 
     def _browse(self, key, filetypes):
         p = filedialog.askopenfilename(filetypes=filetypes)
@@ -734,77 +896,114 @@ class PetCreatorDialog:
     def _add_idle_row(self):
         f = self._idle_frame; row = len(self._idle_entries)
         pv = tk.StringVar(); wv = tk.IntVar(value=2)
-        tk.Label(f, text=f"idle {row+1}:").grid(row=row, column=0)
-        tk.Entry(f, textvariable=pv, width=24).grid(row=row, column=1)
-        tk.Button(f, text="浏览", command=lambda v=pv: self._browse_var(v, [("GIF","*.gif")])).grid(row=row, column=2)
-        tk.Label(f, text="权重:").grid(row=row, column=3)
-        tk.Spinbox(f, from_=1, to=99, textvariable=wv, width=4).grid(row=row, column=4)
+        tk.Label(f, text=f"idle {row+1}:", bg=self._CARD_BG, fg=self._WHITE).grid(row=row, column=0, padx=6)
+        tk.Entry(f, textvariable=pv, width=24, bg="#2b1a2e", fg=self._WHITE,
+                 insertbackground=self._WHITE, relief="flat",
+                 highlightthickness=1, highlightbackground=self._GRAY).grid(row=row, column=1, padx=4, pady=3)
+        tk.Button(f, text="浏览", bg=self._CARD_BG, fg=self._PINK, relief="flat",
+                  command=lambda v=pv: self._browse_var(v, [("GIF", "*.gif")])).grid(row=row, column=2, padx=4)
+        tk.Label(f, text="权重:", bg=self._CARD_BG, fg=self._GRAY).grid(row=row, column=3, padx=4)
+        tk.Spinbox(f, from_=1, to=99, textvariable=wv, width=4,
+                   bg="#2b1a2e", fg=self._PINK, insertbackground=self._PINK,
+                   buttonbackground=self._CARD_BG, relief="flat").grid(row=row, column=4, padx=4)
         self._idle_entries.append((pv, wv))
 
     def _add_move_row(self):
         f = self._move_frame; row = len(self._move_entries)
         pv = tk.StringVar(); wv = tk.IntVar(value=1); fv = tk.BooleanVar(); dv = tk.StringVar(value="left")
-        tk.Label(f, text=f"move {row+1}:").grid(row=row, column=0)
-        tk.Entry(f, textvariable=pv, width=24).grid(row=row, column=1)
-        tk.Button(f, text="浏览", command=lambda v=pv: self._browse_var(v, [("GIF","*.gif")])).grid(row=row, column=2)
-        tk.Label(f, text="权重:").grid(row=row, column=3)
-        tk.Spinbox(f, from_=1, to=99, textvariable=wv, width=4).grid(row=row, column=4)
-        tk.Checkbutton(f, text="翻转", variable=fv).grid(row=row, column=5)
-        ttk.Combobox(f, textvariable=dv, values=["left","right"], width=5, state="readonly").grid(row=row, column=6)
+        tk.Label(f, text=f"move {row+1}:", bg=self._CARD_BG, fg=self._WHITE).grid(row=row, column=0, padx=6)
+        tk.Entry(f, textvariable=pv, width=24, bg="#2b1a2e", fg=self._WHITE,
+                 insertbackground=self._WHITE, relief="flat",
+                 highlightthickness=1, highlightbackground=self._GRAY).grid(row=row, column=1, padx=4, pady=3)
+        tk.Button(f, text="浏览", bg=self._CARD_BG, fg=self._PINK, relief="flat",
+                  command=lambda v=pv: self._browse_var(v, [("GIF", "*.gif")])).grid(row=row, column=2, padx=4)
+        tk.Label(f, text="权重:", bg=self._CARD_BG, fg=self._GRAY).grid(row=row, column=3, padx=4)
+        tk.Spinbox(f, from_=1, to=99, textvariable=wv, width=4,
+                   bg="#2b1a2e", fg=self._PINK, insertbackground=self._PINK,
+                   buttonbackground=self._CARD_BG, relief="flat").grid(row=row, column=4, padx=4)
+        tk.Checkbutton(f, text="翻转", variable=fv, bg=self._CARD_BG, fg=self._PINK,
+                       selectcolor="#2b1a2e", activebackground=self._CARD_BG).grid(row=row, column=5, padx=4)
+        ttk.Combobox(f, textvariable=dv, values=["left", "right"], width=5, state="readonly").grid(row=row, column=6, padx=4)
         self._move_entries.append((pv, wv, fv, dv))
 
     def _save(self):
         name = self.name_var.get().strip()
         if not name:
-            messagebox.showwarning("错误", "请输入桌宠名称！", parent=self.win); return
+            messagebox.showwarning("⚠ 错误", "请输入桌宠名称！", parent=self.win); return
         pet_dir = os.path.join(PETS_DIR, name); os.makedirs(pet_dir, exist_ok=True)
         def cp(src, dst):
             if src and os.path.exists(src): shutil.copy2(src, dst)
         cp(self._files["icon"].get(), os.path.join(pet_dir, f"{name}.ico"))
         cp(self._files["dynamic"].get(), os.path.join(pet_dir, f"{name}.gif"))
         cp(self._files["drag"].get(), os.path.join(pet_dir, "drag.gif"))
-        vi = [(p.get(),w.get()) for p,w in self._idle_entries if p.get() and os.path.exists(p.get())]
-        if len(vi)==1:
-            cp(vi[0][0], os.path.join(pet_dir,"idle.gif")); iw = {"idle_weight":[vi[0][1]]}
+        vi = [(p.get(), w.get()) for p, w in self._idle_entries if p.get() and os.path.exists(p.get())]
+        if len(vi) == 1:
+            cp(vi[0][0], os.path.join(pet_dir, "idle.gif")); iw = {"idle_weight": [vi[0][1]]}
         else:
-            for i,(p,w) in enumerate(vi,1): cp(p, os.path.join(pet_dir,f"idle{i}.gif"))
-            iw = {"idle_weight":[w for _,w in vi]}
-        vm = [(p.get(),w.get(),f.get(),d.get()) for p,w,f,d in self._move_entries if p.get() and os.path.exists(p.get())]
+            for i, (p, w) in enumerate(vi, 1): cp(p, os.path.join(pet_dir, f"idle{i}.gif"))
+            iw = {"idle_weight": [w for _, w in vi]}
+        vm = [(p.get(), w.get(), f.get(), d.get()) for p, w, f, d in self._move_entries if p.get() and os.path.exists(p.get())]
         fi = {}
-        if len(vm)==1:
-            cp(vm[0][0], os.path.join(pet_dir,"move.gif")); mw = {"move_weight":[vm[0][1]]}
-            if vm[0][2]: fi["move"]={"enabled":True,"default_dir":vm[0][3]}
+        if len(vm) == 1:
+            cp(vm[0][0], os.path.join(pet_dir, "move.gif")); mw = {"move_weight": [vm[0][1]]}
+            if vm[0][2]: fi["move"] = {"enabled": True, "default_dir": vm[0][3]}
         else:
-            for i,(p,w,f,d) in enumerate(vm,1):
-                cp(p, os.path.join(pet_dir,f"move{i}.gif"))
-                if f: fi[f"move{i}"]={"enabled":True,"default_dir":d}
-            mw = {"move_weight":[w for _,w,*_ in vm]}
-        with open(os.path.join(pet_dir,"weights.json"),"w",encoding="utf-8") as f:
-            json.dump({"dynamic_weight":self.dyn_weight.get(),**iw,**mw},f,indent=2)
+            for i, (p, w, f, d) in enumerate(vm, 1):
+                cp(p, os.path.join(pet_dir, f"move{i}.gif"))
+                if f: fi[f"move{i}"] = {"enabled": True, "default_dir": d}
+            mw = {"move_weight": [w for _, w, *_ in vm]}
+        with open(os.path.join(pet_dir, "weights.json"), "w", encoding="utf-8") as f:
+            json.dump({"dynamic_weight": self.dyn_weight.get(), **iw, **mw}, f, indent=2)
         if fi:
-            with open(os.path.join(pet_dir,"flip.json"),"w",encoding="utf-8") as f: json.dump(fi,f,indent=2)
-        messagebox.showinfo("成功", f"桌宠 '{name}' 已保存！", parent=self.win); self.win.destroy()
+            with open(os.path.join(pet_dir, "flip.json"), "w", encoding="utf-8") as f: json.dump(fi, f, indent=2)
+        messagebox.showinfo("✅ 成功", f"桌宠 '{name}' 已保存！", parent=self.win); self.win.destroy()
 
 
 class AboutDialog:
+    _BG      = "#2b1a2e"
+    _CARD_BG = "#3d2445"
+    _PINK    = "#ffb6d5"
+    _WHITE   = "#ffffff"
+    _GRAY    = "#9c7aaa"
+
     def __init__(self, parent_root):
         self.win = tk.Toplevel(parent_root); win = self.win
-        win.title(f"关于 {APP_NAME}"); set_window_icon(win); win.resizable(False,False); win.grab_set()
-        pad = {"padx":16,"pady":6}
-        tk.Label(win, text=APP_NAME, font=_FONT_LARGE).pack(**pad)
-        tk.Label(win, text=f"版本: {VERSION}", font=_FONT_NORMAL).pack(**pad)
-        tk.Label(win, text=f"作者: {AUTHOR}  ({AUTHOR_EMAIL})", font=_FONT_NORMAL).pack(**pad)
-        link = tk.Label(win, text=GITHUB_URL, fg="blue", cursor="hand2", font=_FONT_NORMAL)
-        link.pack(**pad); link.bind("<Button-1>", lambda e: self._open_url(GITHUB_URL))
-        bf = tk.Frame(win); bf.pack(pady=4)
-        self._update_btn = tk.Button(bf, text="检查更新", font=_FONT_NORMAL, command=self._start_check_update)
+        win.title(f"关于 {APP_NAME}"); set_window_icon(win)
+        win.configure(bg=self._BG); win.resizable(False, False)
+
+        tk.Label(win, text="♪ " + APP_NAME, bg=self._BG, fg=self._PINK,
+                 font=("Microsoft YaHei UI", 15, "bold")).pack(pady=(18, 4))
+
+        card = tk.Frame(win, bg=self._CARD_BG, padx=20, pady=14)
+        card.pack(fill="x", padx=20, pady=8)
+
+        tk.Label(card, text=f"版本: {VERSION}", bg=self._CARD_BG, fg=self._WHITE,
+                 font=_FONT_NORMAL).pack(anchor="w", pady=2)
+        tk.Label(card, text=f"作者: {AUTHOR}  ({AUTHOR_EMAIL})", bg=self._CARD_BG, fg=self._GRAY,
+                 font=_FONT_NORMAL).pack(anchor="w", pady=2)
+
+        link = tk.Label(card, text=GITHUB_URL, bg=self._CARD_BG, fg="#82cfff",
+                        cursor="hand2", font=_FONT_SMALL)
+        link.pack(anchor="w", pady=2)
+        link.bind("<Button-1>", lambda e: self._open_url(GITHUB_URL))
+
+        bf = tk.Frame(win, bg=self._BG); bf.pack(pady=6)
+        self._update_btn = tk.Button(bf, text="检查更新", bg=self._CARD_BG, fg=self._PINK,
+                                     font=_FONT_NORMAL, relief="flat", padx=10,
+                                     command=self._start_check_update)
         self._update_btn.pack(side="left", padx=6)
+
         self._status_var = tk.StringVar(value="")
-        self._status_lbl = tk.Label(win, textvariable=self._status_var, font=_FONT_SMALL, fg="#555", wraplength=320)
-        self._status_lbl.pack(padx=16, pady=(0,4))
+        self._status_lbl = tk.Label(win, textvariable=self._status_var, bg=self._BG,
+                                    fg=self._GRAY, font=_FONT_SMALL, wraplength=320)
+        self._status_lbl.pack(padx=16, pady=(0, 4))
+
         self._dl_btn = tk.Button(win, text="⬇  前往下载最新版本", font=_FONT_NORMAL,
-                                  bg="#1976d2", fg="white", cursor="hand2", command=self._open_releases)
-        tk.Button(win, text="关闭", font=_FONT_NORMAL, command=win.destroy).pack(pady=8)
+                                  bg="#1565c0", fg=self._WHITE, cursor="hand2",
+                                  relief="flat", padx=12, command=self._open_releases)
+        tk.Button(win, text="关闭", bg=self._CARD_BG, fg=self._GRAY,
+                  font=_FONT_NORMAL, relief="flat", padx=12,
+                  command=win.destroy).pack(pady=10)
 
     @staticmethod
     def _open_url(url):
@@ -814,7 +1013,7 @@ class AboutDialog:
         self._open_url(GITHUB_RELEASES)
 
     def _start_check_update(self):
-        self._update_btn.config(state="disabled"); self._status_var.set("正在检查更新，请稍候…"); self._status_lbl.config(fg="#555")
+        self._update_btn.config(state="disabled"); self._status_var.set("正在检查更新，请稍候…"); self._status_lbl.config(fg=self._GRAY)
         threading.Thread(target=self._do_check_update, daemon=True).start()
 
     def _do_check_update(self):
@@ -836,13 +1035,13 @@ class AboutDialog:
         if kind == "new":
             _, lt, lu, lb = result
             self._status_var.set(f"🎉 发现新版本 v{lt}！（当前 v{VERSION}）\n" + (f"更新内容：{lb[:200]}" if lb else ""))
-            self._status_lbl.config(fg="#1565c0"); self._dl_btn.pack(pady=(0,6))
+            self._status_lbl.config(fg="#82cfff"); self._dl_btn.pack(pady=(0,6))
         elif kind == "latest":
-            self._status_var.set(f"✅ 已是最新版本（v{VERSION}）"); self._status_lbl.config(fg="#2e7d32")
+            self._status_var.set(f"✅ 已是最新版本（v{VERSION}）"); self._status_lbl.config(fg="#6fcf97")
         elif kind == "dev":
-            self._status_var.set(f"🛠 当前版本（v{VERSION}）比最新发布版（v{result[1]}）更新，可能是开发版。"); self._status_lbl.config(fg="#e65100")
+            self._status_var.set(f"🛠 当前版本（v{VERSION}）比最新发布版（v{result[1]}）更新，可能是开发版。"); self._status_lbl.config(fg=self._PINK)
         else:
-            self._status_var.set(f"❌ 检查失败：{result[1]}\n请检查网络连接或访问 GitHub 手动查看。"); self._status_lbl.config(fg="#c62828")
+            self._status_var.set(f"❌ 检查失败：{result[1]}\n请检查网络连接或访问 GitHub 手动查看。"); self._status_lbl.config(fg="#ff6b6b")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

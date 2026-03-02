@@ -190,11 +190,10 @@ class MusicPlayerDialog:
         self._images: dict = {}   # keep PhotoImage refs alive
 
         self.win = tk.Toplevel(parent)
-        self.win.title("🎵 音乐播放器")
+        self.win.title("音乐播放器")
         self.win.configure(bg=self._BG)
         self.win.resizable(False, False)
         set_window_icon(self.win)
-        self.win.grab_set()
 
         self._build_ui()
         self._refresh_list()
