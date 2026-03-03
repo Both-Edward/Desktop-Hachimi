@@ -1,5 +1,5 @@
 """
-Desktop Hachimi – main entry point v1.1.0
+Desktop Hachimi – main entry point v1.1.2
 Refactored: frontend/backend separation for Windows / Linux (KDE) / macOS support.
   core/            – pure logic (config, gif loading, pet data)
   platform_utils/  – OS-specific helpers (autostart, DPI awareness, trash)
@@ -380,88 +380,356 @@ class PetWindow:
         self.canvas.bind("<ButtonRelease-1>", self._on_drag_end)
         self.canvas.bind("<ButtonPress-3>",   self._on_right_click)
 
-    def _build_context_menu(self):
-        app = self.app
-        cfg = self.cfg
-        f   = ("Microsoft YaHei UI", 10)
-        menu = tk.Menu(self.root, tearoff=0, font=f)
-
-        # 切换桌宠
-        pm = tk.Menu(menu, tearoff=0, font=f)
-        for p in get_available_pets():
-            pm.add_command(
-                label=("✓ " if p == cfg["pet"] else "   ") + p,
-                command=lambda n=p: self.root.after(0, lambda: self.set_pet(n)))
-        menu.add_cascade(label="切换桌宠", menu=pm)
-
-        # 删除桌宠
-        dm = tk.Menu(menu, tearoff=0, font=f)
-        for p in get_available_pets():
-            dm.add_command(
-                label="   " + p,
-                command=lambda n=p: self.root.after(0, lambda: self._delete_pet(n)))
-        menu.add_cascade(label="删除桌宠", menu=dm)
-
-        # 桌宠大小
-        sm = tk.Menu(menu, tearoff=0, font=f)
-        for v in [round(x*0.1, 1) for x in range(1, 21)]:
-            sm.add_command(
-                label=("✓ " if abs(cfg["scale"]-v) < 0.05 else "   ") + f"x{v:.1f}",
-                command=lambda val=v: self.root.after(0, lambda: self.set_scale(val)))
-        menu.add_cascade(label="桌宠大小", menu=sm)
-
-        # 透明度
-        om = tk.Menu(menu, tearoff=0, font=f)
-        for v in [round(x*0.1, 1) for x in range(1, 11)]:
-            om.add_command(
-                label=("✓ " if abs(cfg["opacity"]-v) < 0.05 else "   ") + f"{int(v*100)}%",
-                command=lambda val=v: self.root.after(0, lambda: self.set_opacity(val)))
-        menu.add_cascade(label="透明度", menu=om)
-
-        # 速度
-        vm = tk.Menu(menu, tearoff=0, font=f)
-        for s in range(1, 11):
-            vm.add_command(
-                label=("✓ " if cfg["speed"] == s else "   ") + f"速度 {s}",
-                command=lambda val=s: self.root.after(0, lambda: self.set_speed(val)))
-        menu.add_cascade(label="速度", menu=vm)
-
-        menu.add_separator()
-        mf = cfg.get("mouse_follow", False)
-        menu.add_command(
-            label=("✓ " if mf else "   ") + "鼠标跟随",
-            command=lambda: self.root.after(0, lambda: self.set_mouse_follow(not self.cfg.get("mouse_follow", False))))
-        aot = cfg.get("always_on_top", True)
-        menu.add_command(
-            label=("✓ " if aot else "   ") + "最上层显示",
-            command=lambda: self.root.after(0, lambda: self.set_always_on_top(not self.cfg.get("always_on_top", True))))
-        menu.add_command(
-            label=("✓ " if get_autostart() else "   ") + "开机自启动",
-            command=lambda: self.root.after(0, self.app._toggle_autostart))
-
-        menu.add_separator()
-        menu.add_command(label="   音乐播放器",
-                         command=lambda: self.root.after(0, self._open_music_player))
-        menu.add_command(label="   调整状态权重",
-                         command=lambda: self.root.after(0, lambda: WeightEditorDialog(self.root, self)))
-        menu.add_command(label="   调整运动方向反转",
-                         command=lambda: self.root.after(0, lambda: FlipEditorDialog(self.root, self)))
-        menu.add_command(label="   创建桌宠",
-                         command=lambda: self.root.after(0, lambda: PetCreatorDialog(self.root)))
-        menu.add_command(label="   关于",
-                         command=lambda: self.root.after(0, lambda: AboutDialog(self.root)))
-
-        menu.add_separator()
-        menu.add_command(label="   退出",
-                         command=lambda: self.root.after(0, self.app._do_quit))
-        return menu
+    # ── Beautiful Pink/White Context Menu ─────────────────────────────────
+    # Color palette shared with dialogs
+    _CM_BG        = "#fff0f5"   # soft blush white background
+    _CM_HEADER_BG = "#ffb6d5"   # pink header stripe
+    _CM_HOVER_BG  = "#ffe0ee"   # hover highlight
+    _CM_TEXT      = "#5a1a3a"   # deep rose text
+    _CM_PINK      = "#e0457a"   # accent pink
+    _CM_SEP       = "#f9c6d8"   # separator line
+    _CM_CHECK     = "#e0457a"   # checkmark color
+    _CM_BTN_BG    = "#ffffff"   # button background
+    _CM_SHADOW    = "#f0b8cc"   # subtle shadow/border
 
     def _on_right_click(self, event):
-        menu = self._build_context_menu()
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
+        """Show beautiful custom context menu."""
+        self._show_context_menu(event.x_root, event.y_root)
+
+    def _show_context_menu(self, x, y):
+        """Build and display a beautiful pink/white floating context menu."""
+        cfg = self.cfg
+
+        # Destroy any existing context menu
+        if hasattr(self, '_ctx_win') and self._ctx_win:
+            try:
+                self._ctx_win.destroy()
+            except Exception:
+                pass
+            self._ctx_win = None
+
+        win = tk.Toplevel(self.root)
+        self._ctx_win = win
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg=self._CM_SHADOW)
+
+        # Main frame with 1px border effect
+        outer = tk.Frame(win, bg=self._CM_SHADOW, padx=1, pady=1)
+        outer.pack(fill="both", expand=True)
+        frame = tk.Frame(outer, bg=self._CM_BG, padx=0, pady=4)
+        frame.pack(fill="both", expand=True)
+
+        def close_menu(event=None):
+            try:
+                win.destroy()
+            except Exception:
+                pass
+            self._ctx_win = None
+
+        def run_cmd(fn):
+            close_menu()
+            self.root.after(10, fn)
+
+        def make_item(parent, label, command=None, checked=None, is_sep=False,
+                      is_header=False, indent=0):
+            if is_sep:
+                sep = tk.Frame(parent, bg=self._CM_SEP, height=1)
+                sep.pack(fill="x", padx=10, pady=2)
+                return
+
+            row = tk.Frame(parent, bg=self._CM_BG, cursor="hand2" if command else "")
+            row.pack(fill="x", padx=0, pady=0)
+
+            # checkmark column
+            ck_text = "✦" if checked else "  "
+            ck_color = self._CM_CHECK if checked else self._CM_BG
+            ck = tk.Label(row, text=ck_text, bg=self._CM_BG, fg=ck_color,
+                          font=("Microsoft YaHei UI", 9, "bold"), width=2, anchor="center")
+            ck.pack(side="left", padx=(6, 0))
+
+            lbl = tk.Label(row, text=label, bg=self._CM_BG, fg=self._CM_TEXT,
+                           font=("Microsoft YaHei UI", 10), anchor="w", padx=4, pady=4)
+            lbl.pack(side="left", fill="x", expand=True, padx=indent)
+
+            # Arrow for submenus
+            arrow_lbl = None
+            if command is None and not is_sep:
+                arrow_lbl = tk.Label(row, text="▸", bg=self._CM_BG, fg=self._CM_PINK,
+                                     font=("Microsoft YaHei UI", 9), padx=4)
+                arrow_lbl.pack(side="right")
+
+            def on_enter(e, r=row, ck_w=ck, l=lbl, aw=arrow_lbl):
+                r.config(bg=self._CM_HOVER_BG)
+                ck_w.config(bg=self._CM_HOVER_BG)
+                l.config(bg=self._CM_HOVER_BG)
+                if aw: aw.config(bg=self._CM_HOVER_BG)
+
+            def on_leave(e, r=row, ck_w=ck, l=lbl, aw=arrow_lbl):
+                r.config(bg=self._CM_BG)
+                ck_w.config(bg=self._CM_BG)
+                l.config(bg=self._CM_BG)
+                if aw: aw.config(bg=self._CM_BG)
+
+            for w in (row, ck, lbl):
+                w.bind("<Enter>", on_enter)
+                w.bind("<Leave>", on_leave)
+                if command:
+                    w.bind("<Button-1>", lambda e, fn=command: run_cmd(fn))
+            if arrow_lbl:
+                arrow_lbl.bind("<Enter>", on_enter)
+                arrow_lbl.bind("<Leave>", on_leave)
+
+            return row
+
+        def make_submenu_item(parent, label, build_sub_fn):
+            """Item that opens a submenu popup on hover."""
+            row = tk.Frame(parent, bg=self._CM_BG, cursor="hand2")
+            row.pack(fill="x", padx=0, pady=0)
+
+            ck = tk.Label(row, text="  ", bg=self._CM_BG, fg=self._CM_BG,
+                          font=("Microsoft YaHei UI", 9, "bold"), width=2, anchor="center")
+            ck.pack(side="left", padx=(6, 0))
+
+            lbl = tk.Label(row, text=label, bg=self._CM_BG, fg=self._CM_TEXT,
+                           font=("Microsoft YaHei UI", 10), anchor="w", padx=4, pady=4)
+            lbl.pack(side="left", fill="x", expand=True)
+
+            arrow = tk.Label(row, text="▸", bg=self._CM_BG, fg=self._CM_PINK,
+                             font=("Microsoft YaHei UI", 9), padx=4)
+            arrow.pack(side="right")
+
+            _sub_win = [None]
+
+            def close_sub():
+                if _sub_win[0]:
+                    try: _sub_win[0].destroy()
+                    except: pass
+                    _sub_win[0] = None
+
+            def open_sub(e, r=row):
+                close_sub()
+                sx = win.winfo_x() + win.winfo_width()
+                sy = win.winfo_y() + r.winfo_y()
+                sub = tk.Toplevel(win)
+                _sub_win[0] = sub
+                sub.overrideredirect(True)
+                sub.attributes("-topmost", True)
+                sub.configure(bg=self._CM_SHADOW)
+                outer_s = tk.Frame(sub, bg=self._CM_SHADOW, padx=1, pady=1)
+                outer_s.pack(fill="both", expand=True)
+                sf = tk.Frame(outer_s, bg=self._CM_BG, padx=0, pady=4)
+                sf.pack(fill="both", expand=True)
+                build_sub_fn(sf, sub, close_sub)
+                sub.update_idletasks()
+                sw = sub.winfo_reqwidth()
+                sh = sub.winfo_reqheight()
+                # Adjust if off-screen
+                screen_w = self.root.winfo_screenwidth()
+                screen_h = self.root.winfo_screenheight()
+                if sx + sw > screen_w:
+                    sx = win.winfo_x() - sw
+                if sy + sh > screen_h:
+                    sy = screen_h - sh
+                sub.geometry(f"+{sx}+{sy}")
+                sub.lift()
+
+                def sub_close_on_click_outside(e):
+                    try:
+                        if not (sub.winfo_x() <= e.x_root <= sub.winfo_x() + sub.winfo_width() and
+                                sub.winfo_y() <= e.y_root <= sub.winfo_y() + sub.winfo_height()):
+                            close_sub()
+                    except: pass
+
+                sub.bind("<FocusOut>", lambda e: close_sub())
+
+            def on_enter(e, r=row, widgets=(ck, lbl, arrow)):
+                r.config(bg=self._CM_HOVER_BG)
+                for w in widgets: w.config(bg=self._CM_HOVER_BG)
+                open_sub(e, r)
+
+            def on_leave(e, r=row, widgets=(ck, lbl, arrow)):
+                r.config(bg=self._CM_BG)
+                for w in widgets: w.config(bg=self._CM_BG)
+
+            for w in (row, ck, lbl, arrow):
+                w.bind("<Enter>", on_enter)
+                w.bind("<Leave>", on_leave)
+
+        # ── Menu header ──
+        header = tk.Frame(frame, bg=self._CM_HEADER_BG)
+        header.pack(fill="x", padx=0, pady=(0, 4))
+        tk.Label(header, text="🐾  Desktop Hachimi", bg=self._CM_HEADER_BG,
+                 fg="#ffffff", font=("Microsoft YaHei UI", 10, "bold"),
+                 padx=12, pady=6).pack(side="left")
+
+        # ── 切换桌宠 submenu ──
+        def build_pet_sub(sf, sub, close_sub_fn):
+            for p in get_available_pets():
+                is_cur = (p == cfg["pet"])
+                def cmd(n=p):
+                    close_menu(); close_sub_fn()
+                    self.root.after(10, lambda: self.set_pet(n))
+                r = tk.Frame(sf, bg=self._CM_BG, cursor="hand2")
+                r.pack(fill="x")
+                ck_t = "✦" if is_cur else "  "
+                ck_c = self._CM_CHECK if is_cur else self._CM_BG
+                ck_l = tk.Label(r, text=ck_t, bg=self._CM_BG, fg=ck_c,
+                                font=("Microsoft YaHei UI", 9, "bold"), width=2)
+                ck_l.pack(side="left", padx=(6,0))
+                tl = tk.Label(r, text=p, bg=self._CM_BG, fg=self._CM_TEXT,
+                              font=("Microsoft YaHei UI", 10), anchor="w", padx=4, pady=4)
+                tl.pack(side="left", fill="x", expand=True)
+                def _on_e(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=self._CM_HOVER_BG); cc.config(bg=self._CM_HOVER_BG); tt.config(bg=self._CM_HOVER_BG)
+                def _on_l(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=self._CM_BG); cc.config(bg=self._CM_BG); tt.config(bg=self._CM_BG)
+                for w in (r, ck_l, tl):
+                    w.bind("<Enter>", _on_e); w.bind("<Leave>", _on_l)
+                    w.bind("<Button-1>", lambda e, c=cmd: c())
+
+        make_submenu_item(frame, "切换桌宠", build_pet_sub)
+
+        # ── 删除桌宠 submenu ──
+        def build_del_sub(sf, sub, close_sub_fn):
+            for p in get_available_pets():
+                def cmd(n=p):
+                    close_menu(); close_sub_fn()
+                    self.root.after(10, lambda: self._delete_pet(n))
+                r = tk.Frame(sf, bg=self._CM_BG, cursor="hand2"); r.pack(fill="x")
+                tl = tk.Label(r, text=p, bg=self._CM_BG, fg="#c0394e",
+                              font=("Microsoft YaHei UI", 10), anchor="w", padx=16, pady=4)
+                tl.pack(side="left", fill="x", expand=True)
+                def _on_e(e, rr=r, tt=tl): rr.config(bg=self._CM_HOVER_BG); tt.config(bg=self._CM_HOVER_BG)
+                def _on_l(e, rr=r, tt=tl): rr.config(bg=self._CM_BG); tt.config(bg=self._CM_BG)
+                for w in (r, tl): w.bind("<Enter>", _on_e); w.bind("<Leave>", _on_l); w.bind("<Button-1>", lambda e, c=cmd: c())
+
+        make_submenu_item(frame, "删除桌宠", build_del_sub)
+
+        # ── 桌宠大小 submenu ──
+        def build_scale_sub(sf, sub, close_sub_fn):
+            for v in [round(x*0.1,1) for x in range(1,21)]:
+                is_cur = abs(cfg["scale"]-v) < 0.05
+                def cmd(val=v):
+                    close_menu(); close_sub_fn()
+                    self.root.after(10, lambda: self.set_scale(val))
+                r = tk.Frame(sf, bg=self._CM_BG, cursor="hand2"); r.pack(fill="x")
+                ck_t = "✦" if is_cur else "  "; ck_c = self._CM_CHECK if is_cur else self._CM_BG
+                ck_l = tk.Label(r, text=ck_t, bg=self._CM_BG, fg=ck_c, font=("Microsoft YaHei UI", 9, "bold"), width=2)
+                ck_l.pack(side="left", padx=(6,0))
+                tl = tk.Label(r, text=f"x{v:.1f}", bg=self._CM_BG, fg=self._CM_TEXT, font=("Microsoft YaHei UI", 10), anchor="w", padx=4, pady=3)
+                tl.pack(side="left", fill="x", expand=True)
+                def _on_e(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=self._CM_HOVER_BG); cc.config(bg=self._CM_HOVER_BG); tt.config(bg=self._CM_HOVER_BG)
+                def _on_l(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=self._CM_BG); cc.config(bg=self._CM_BG); tt.config(bg=self._CM_BG)
+                for w in (r, ck_l, tl): w.bind("<Enter>", _on_e); w.bind("<Leave>", _on_l); w.bind("<Button-1>", lambda e, c=cmd: c())
+
+        make_submenu_item(frame, "桌宠大小", build_scale_sub)
+
+        # ── 透明度 submenu ──
+        def build_opacity_sub(sf, sub, close_sub_fn):
+            for v in [round(x*0.1,1) for x in range(1,11)]:
+                is_cur = abs(cfg["opacity"]-v) < 0.05
+                def cmd(val=v):
+                    close_menu(); close_sub_fn()
+                    self.root.after(10, lambda: self.set_opacity(val))
+                r = tk.Frame(sf, bg=self._CM_BG, cursor="hand2"); r.pack(fill="x")
+                ck_t = "✦" if is_cur else "  "; ck_c = self._CM_CHECK if is_cur else self._CM_BG
+                ck_l = tk.Label(r, text=ck_t, bg=self._CM_BG, fg=ck_c, font=("Microsoft YaHei UI", 9, "bold"), width=2)
+                ck_l.pack(side="left", padx=(6,0))
+                tl = tk.Label(r, text=f"{int(v*100)}%", bg=self._CM_BG, fg=self._CM_TEXT, font=("Microsoft YaHei UI", 10), anchor="w", padx=4, pady=3)
+                tl.pack(side="left", fill="x", expand=True)
+                def _on_e(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=self._CM_HOVER_BG); cc.config(bg=self._CM_HOVER_BG); tt.config(bg=self._CM_HOVER_BG)
+                def _on_l(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=self._CM_BG); cc.config(bg=self._CM_BG); tt.config(bg=self._CM_BG)
+                for w in (r, ck_l, tl): w.bind("<Enter>", _on_e); w.bind("<Leave>", _on_l); w.bind("<Button-1>", lambda e, c=cmd: c())
+
+        make_submenu_item(frame, "透明度", build_opacity_sub)
+
+        # ── 速度 submenu ──
+        def build_speed_sub(sf, sub, close_sub_fn):
+            for s in range(1,11):
+                is_cur = cfg["speed"] == s
+                def cmd(val=s):
+                    close_menu(); close_sub_fn()
+                    self.root.after(10, lambda: self.set_speed(val))
+                r = tk.Frame(sf, bg=self._CM_BG, cursor="hand2"); r.pack(fill="x")
+                ck_t = "✦" if is_cur else "  "; ck_c = self._CM_CHECK if is_cur else self._CM_BG
+                ck_l = tk.Label(r, text=ck_t, bg=self._CM_BG, fg=ck_c, font=("Microsoft YaHei UI", 9, "bold"), width=2)
+                ck_l.pack(side="left", padx=(6,0))
+                tl = tk.Label(r, text=f"速度 {s}", bg=self._CM_BG, fg=self._CM_TEXT, font=("Microsoft YaHei UI", 10), anchor="w", padx=4, pady=3)
+                tl.pack(side="left", fill="x", expand=True)
+                def _on_e(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=self._CM_HOVER_BG); cc.config(bg=self._CM_HOVER_BG); tt.config(bg=self._CM_HOVER_BG)
+                def _on_l(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=self._CM_BG); cc.config(bg=self._CM_BG); tt.config(bg=self._CM_BG)
+                for w in (r, ck_l, tl): w.bind("<Enter>", _on_e); w.bind("<Leave>", _on_l); w.bind("<Button-1>", lambda e, c=cmd: c())
+
+        make_submenu_item(frame, "速度", build_speed_sub)
+
+        # ── Separator ──
+        make_item(frame, "", is_sep=True)
+
+        # ── Toggle items ──
+        mf = cfg.get("mouse_follow", False)
+        make_item(frame, "鼠标跟随", checked=mf,
+                  command=lambda: self.set_mouse_follow(not self.cfg.get("mouse_follow", False)))
+
+        aot = cfg.get("always_on_top", True)
+        make_item(frame, "最上层显示", checked=aot,
+                  command=lambda: self.set_always_on_top(not self.cfg.get("always_on_top", True)))
+
+        ast = get_autostart()
+        make_item(frame, "开机自启动", checked=ast,
+                  command=self.app._toggle_autostart)
+
+        # ── Separator ──
+        make_item(frame, "", is_sep=True)
+
+        # ── Actions ──
+        make_item(frame, "音乐播放器",     command=self._open_music_player)
+        make_item(frame, "调整状态权重",   command=lambda: WeightEditorDialog(self.root, self))
+        make_item(frame, "调整运动方向反转", command=lambda: FlipEditorDialog(self.root, self))
+        make_item(frame, "创建桌宠",       command=lambda: PetCreatorDialog(self.root))
+        make_item(frame, "关于",           command=lambda: AboutDialog(self.root))
+
+        # ── Separator ──
+        make_item(frame, "", is_sep=True)
+
+        # ── 退出 (pink accent) ──
+        quit_row = tk.Frame(frame, bg=self._CM_BG, cursor="hand2")
+        quit_row.pack(fill="x", padx=0, pady=(0,2))
+        ck_q = tk.Label(quit_row, text="  ", bg=self._CM_BG, width=2,
+                        font=("Microsoft YaHei UI", 9))
+        ck_q.pack(side="left", padx=(6,0))
+        lbl_q = tk.Label(quit_row, text="退出", bg=self._CM_BG, fg=self._CM_PINK,
+                         font=("Microsoft YaHei UI", 10, "bold"), anchor="w", padx=4, pady=4)
+        lbl_q.pack(side="left", fill="x", expand=True)
+        def _on_eq(e): quit_row.config(bg=self._CM_HOVER_BG); ck_q.config(bg=self._CM_HOVER_BG); lbl_q.config(bg=self._CM_HOVER_BG)
+        def _on_lq(e): quit_row.config(bg=self._CM_BG); ck_q.config(bg=self._CM_BG); lbl_q.config(bg=self._CM_BG)
+        for w in (quit_row, ck_q, lbl_q):
+            w.bind("<Enter>", _on_eq); w.bind("<Leave>", _on_lq)
+            w.bind("<Button-1>", lambda e: run_cmd(self.app._do_quit))
+
+        # ── Position menu ──
+        win.update_idletasks()
+        mw = win.winfo_reqwidth()
+        mh = win.winfo_reqheight()
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        mx = x if x + mw <= sw else x - mw
+        my = y if y + mh <= sh else y - mh
+        win.geometry(f"+{mx}+{my}")
+        win.deiconify()
+        win.lift()
+        win.focus_set()
+
+        # Close on click outside
+        def on_focus_out(e):
+            try:
+                if win.winfo_exists():
+                    close_menu()
+            except Exception:
+                pass
+
+        win.bind("<FocusOut>", on_focus_out)
+        win.bind("<Escape>", close_menu)
+        self.root.bind("<ButtonPress-1>", lambda e: close_menu(), add="+")
+        self.root.bind("<ButtonPress-3>", lambda e: None, add="+")
 
     def _on_drag_start(self, event):
         self.prev_state = self.state
@@ -562,12 +830,16 @@ class PetWindow:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class WeightEditorDialog:
-    _BG      = "#2b1a2e"
-    _CARD_BG = "#3d2445"
-    _PINK    = "#ffb6d5"
-    _WHITE   = "#ffffff"
-    _GRAY    = "#9c7aaa"
-    _GREEN   = "#6fcf97"
+    # Pink/white palette matching the pet's right-click context menu
+    _BG        = "#fff0f5"   # soft blush white background
+    _CARD_BG   = "#ffe0ee"   # card / section background
+    _HEADER_BG = "#ffb6d5"   # pink header stripe
+    _PINK      = "#e0457a"   # accent pink
+    _TEXT      = "#5a1a3a"   # deep rose text
+    _GRAY      = "#c47a9a"   # muted rose for hints
+    _SEP       = "#f9c6d8"   # separator line
+    _GREEN     = "#e0457a"   # reuse accent for save button (override below)
+    _WHITE     = "#5a1a3a"   # alias – text on cards
 
     def __init__(self, parent_root, pet_win: PetWindow):
         self.pet_win = pet_win
@@ -578,18 +850,18 @@ class WeightEditorDialog:
         self._build_ui()
 
     def _label(self, parent, text, fg=None, font=None, **kw):
-        return tk.Label(parent, text=text, bg=self._BG, fg=fg or self._WHITE,
+        return tk.Label(parent, text=text, bg=self._BG, fg=fg or self._TEXT,
                         font=font or _FONT_NORMAL, **kw)
 
     def _card_label(self, parent, text, fg=None, font=None, **kw):
-        return tk.Label(parent, text=text, bg=self._CARD_BG, fg=fg or self._WHITE,
+        return tk.Label(parent, text=text, bg=self._CARD_BG, fg=fg or self._TEXT,
                         font=font or _FONT_NORMAL, **kw)
 
     def _spinbox(self, parent, var):
         return tk.Spinbox(parent, from_=1, to=999, textvariable=var, width=6,
                           bg=self._CARD_BG, fg=self._PINK, insertbackground=self._PINK,
                           buttonbackground=self._CARD_BG, relief="flat",
-                          highlightthickness=1, highlightbackground=self._GRAY,
+                          highlightthickness=1, highlightbackground=self._SEP,
                           font=_FONT_NORMAL)
 
     def _build_ui(self):
@@ -597,11 +869,15 @@ class WeightEditorDialog:
         pd  = self.pet_win.pet_data
         pad = {"padx": 10, "pady": 5}
 
-        # Title
-        tk.Label(win, text="♪ 调整状态权重", bg=self._BG, fg=self._PINK,
-                 font=("Microsoft YaHei UI", 13, "bold")).pack(pady=(14, 2))
+        # Pink header stripe (matching context menu style)
+        header = tk.Frame(win, bg=self._HEADER_BG)
+        header.pack(fill="x")
+        tk.Label(header, text="🐾  调整状态权重", bg=self._HEADER_BG,
+                 fg="#ffffff", font=("Microsoft YaHei UI", 11, "bold"),
+                 padx=14, pady=8).pack(side="left")
+
         tk.Label(win, text=f"桌宠：{pd.name}", bg=self._BG, fg=self._GRAY,
-                 font=_FONT_SMALL).pack()
+                 font=_FONT_SMALL).pack(pady=(6, 0))
 
         # Card
         card = tk.Frame(win, bg=self._CARD_BG, padx=16, pady=10)
@@ -617,7 +893,7 @@ class WeightEditorDialog:
         self._spinbox(card, self._dyn_var).grid(row=row, column=1, sticky="w", **pad)
         row += 1
 
-        tk.Frame(card, bg=self._GRAY, height=1).grid(row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=4); row += 1
+        tk.Frame(card, bg=self._SEP, height=1).grid(row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=4); row += 1
 
         self._idle_vars = []
         idle_count = len(pd.idle_variants)
@@ -638,7 +914,7 @@ class WeightEditorDialog:
                 self._spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
                 self._idle_vars.append(v); row += 1
 
-        tk.Frame(card, bg=self._GRAY, height=1).grid(row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=4); row += 1
+        tk.Frame(card, bg=self._SEP, height=1).grid(row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=4); row += 1
 
         self._move_vars = []
         move_count = len(pd.move_variants)
@@ -669,9 +945,9 @@ class WeightEditorDialog:
 
         bf = tk.Frame(win, bg=self._BG)
         bf.pack(pady=12)
-        tk.Button(bf, text="保存并应用", bg="#6fcf97", fg="#1a0a20",
+        tk.Button(bf, text="保存并应用", bg=self._PINK, fg="#ffffff",
                   font=_FONT_BOLD, relief="flat", padx=12, command=self._save).pack(side="left", padx=8)
-        tk.Button(bf, text="取消", bg=self._CARD_BG, fg=self._GRAY,
+        tk.Button(bf, text="取消", bg=self._CARD_BG, fg=self._TEXT,
                   font=_FONT_NORMAL, relief="flat", padx=12, command=self.win.destroy).pack(side="left", padx=8)
 
     def _safe_int(self, var, fallback=1):
@@ -704,11 +980,15 @@ class WeightEditorDialog:
 
 
 class FlipEditorDialog:
-    _BG      = "#2b1a2e"
-    _CARD_BG = "#3d2445"
-    _PINK    = "#ffb6d5"
-    _WHITE   = "#ffffff"
-    _GRAY    = "#9c7aaa"
+    # Pink/white palette matching the pet's right-click context menu
+    _BG        = "#fff0f5"
+    _CARD_BG   = "#ffe0ee"
+    _HEADER_BG = "#ffb6d5"
+    _PINK      = "#e0457a"
+    _TEXT      = "#5a1a3a"
+    _GRAY      = "#c47a9a"
+    _SEP       = "#f9c6d8"
+    _WHITE     = "#5a1a3a"  # alias
 
     def __init__(self, parent_root, pet_win: PetWindow):
         self.pet_win = pet_win
@@ -726,10 +1006,15 @@ class FlipEditorDialog:
     def _build_ui(self):
         win = self.win; pd = self.pet_win.pet_data
 
-        tk.Label(win, text="♪ 调整运动方向反转", bg=self._BG, fg=self._PINK,
-                 font=("Microsoft YaHei UI", 13, "bold")).pack(pady=(14, 2))
+        # Pink header stripe
+        header = tk.Frame(win, bg=self._HEADER_BG)
+        header.pack(fill="x")
+        tk.Label(header, text="🐾  调整运动方向反转", bg=self._HEADER_BG,
+                 fg="#ffffff", font=("Microsoft YaHei UI", 11, "bold"),
+                 padx=14, pady=8).pack(side="left")
+
         tk.Label(win, text=f"桌宠：{pd.name}", bg=self._BG, fg=self._GRAY,
-                 font=_FONT_SMALL).pack()
+                 font=_FONT_SMALL).pack(pady=(6, 0))
 
         info = tk.Frame(win, bg=self._CARD_BG, padx=14, pady=8)
         info.pack(fill="x", padx=16, pady=(8, 4))
@@ -741,7 +1026,7 @@ class FlipEditorDialog:
         if mc == 0:
             tk.Label(win, text="当前桌宠没有移动状态图，无法配置。",
                      bg=self._BG, fg=self._GRAY).pack(padx=16, pady=8)
-            tk.Button(win, text="关闭", bg=self._CARD_BG, fg=self._GRAY,
+            tk.Button(win, text="关闭", bg=self._CARD_BG, fg=self._TEXT,
                       relief="flat", padx=12, command=self.win.destroy).pack(pady=10)
             return
 
@@ -752,7 +1037,7 @@ class FlipEditorDialog:
         for lbl, col in [("图片", 0), ("启用反转", 1), ("默认朝向", 2), ("当前效果预览", 3)]:
             tk.Label(card, text=lbl, bg=self._CARD_BG, fg=self._PINK,
                      font=_FONT_BOLD, width=(10 if col == 0 else None)).grid(row=0, column=col, **pad)
-        tk.Frame(card, bg=self._GRAY, height=1).grid(row=1, column=0, columnspan=4, sticky="ew", padx=4, pady=2)
+        tk.Frame(card, bg=self._SEP, height=1).grid(row=1, column=0, columnspan=4, sticky="ew", padx=4, pady=2)
 
         for i in range(mc):
             key = self._variant_key(i, mc)
@@ -761,23 +1046,23 @@ class FlipEditorDialog:
             dv  = tk.StringVar(value=ex.get("default_dir", "left"))
             r   = 2 + i
             tk.Label(card, text="move.gif" if mc == 1 else f"move{i+1}.gif",
-                     bg=self._CARD_BG, fg=self._WHITE, anchor="e").grid(row=r, column=0, sticky="e", **pad)
+                     bg=self._CARD_BG, fg=self._TEXT, anchor="e").grid(row=r, column=0, sticky="e", **pad)
             tk.Checkbutton(card, variable=ev, bg=self._CARD_BG, fg=self._PINK,
                            selectcolor=self._BG, activebackground=self._CARD_BG,
                            command=self._make_row_refresh(i)).grid(row=r, column=1, **pad)
             cb = ttk.Combobox(card, textvariable=dv, values=["left", "right"], width=6, state="readonly")
             cb.grid(row=r, column=2, **pad)
             cb.bind("<<ComboboxSelected>>", lambda e, idx=i: self._refresh_preview(idx))
-            pl = tk.Label(card, text="", bg=self._CARD_BG, fg="#b0b8ff", width=24, anchor="w", font=_FONT_SMALL)
+            pl = tk.Label(card, text="", bg=self._CARD_BG, fg=self._PINK, width=24, anchor="w", font=_FONT_SMALL)
             pl.grid(row=r, column=3, padx=(0, 8))
             self._rows.append({"key": key, "enabled_var": ev, "dir_var": dv, "preview_lbl": pl})
             self._refresh_preview(i)
 
         bf = tk.Frame(win, bg=self._BG)
         bf.pack(pady=12)
-        tk.Button(bf, text="保存并应用", bg="#6fcf97", fg="#1a0a20",
+        tk.Button(bf, text="保存并应用", bg=self._PINK, fg="#ffffff",
                   font=_FONT_BOLD, relief="flat", padx=12, command=self._save).pack(side="left", padx=8)
-        tk.Button(bf, text="取消", bg=self._CARD_BG, fg=self._GRAY,
+        tk.Button(bf, text="取消", bg=self._CARD_BG, fg=self._TEXT,
                   relief="flat", padx=12, command=self.win.destroy).pack(side="left", padx=8)
 
     def _make_row_refresh(self, idx):
@@ -815,20 +1100,23 @@ class PetCreatorDialog:
         self._idle_entries = []; self._move_entries = []
         self._build_ui()
 
-    _BG      = "#2b1a2e"
-    _CARD_BG = "#3d2445"
-    _PINK    = "#ffb6d5"
-    _WHITE   = "#ffffff"
-    _GRAY    = "#9c7aaa"
+    _BG        = "#fff0f5"
+    _CARD_BG   = "#ffe0ee"
+    _HEADER_BG = "#ffb6d5"
+    _PINK      = "#e0457a"
+    _TEXT      = "#5a1a3a"
+    _GRAY      = "#c47a9a"
+    _SEP       = "#f9c6d8"
+    _WHITE     = "#5a1a3a"  # alias
 
     def _entry(self, parent, var, width=24):
         return tk.Entry(parent, textvariable=var, width=width,
-                        bg=self._CARD_BG, fg=self._WHITE, insertbackground=self._WHITE,
-                        relief="flat", highlightthickness=1, highlightbackground=self._GRAY)
+                        bg=self._CARD_BG, fg=self._TEXT, insertbackground=self._TEXT,
+                        relief="flat", highlightthickness=1, highlightbackground=self._SEP)
 
     def _btn(self, parent, text, command, accent=False):
         if accent:
-            return tk.Button(parent, text=text, command=command, bg="#6fcf97", fg="#1a0a20",
+            return tk.Button(parent, text=text, command=command, bg=self._PINK, fg="#ffffff",
                              font=_FONT_BOLD, relief="flat", padx=10)
         return tk.Button(parent, text=text, command=command, bg=self._CARD_BG, fg=self._PINK,
                          relief="flat", padx=8)
@@ -837,20 +1125,24 @@ class PetCreatorDialog:
         return tk.Spinbox(parent, from_=1, to=99, textvariable=var, width=width,
                           bg=self._CARD_BG, fg=self._PINK, insertbackground=self._PINK,
                           buttonbackground=self._CARD_BG, relief="flat",
-                          highlightthickness=1, highlightbackground=self._GRAY)
+                          highlightthickness=1, highlightbackground=self._SEP)
 
     def _label(self, parent, text, fg=None):
-        return tk.Label(parent, text=text, bg=self._CARD_BG, fg=fg or self._WHITE, font=_FONT_NORMAL)
+        return tk.Label(parent, text=text, bg=self._CARD_BG, fg=fg or self._TEXT, font=_FONT_NORMAL)
 
     def _build_ui(self):
         win = self.win
         pad = {"padx": 8, "pady": 4}
 
-        tk.Label(win, text="♪ 创建桌宠", bg=self._BG, fg=self._PINK,
-                 font=("Microsoft YaHei UI", 13, "bold")).pack(pady=(14, 6))
+        # Pink header stripe
+        header = tk.Frame(win, bg=self._HEADER_BG)
+        header.pack(fill="x")
+        tk.Label(header, text="🐾  创建桌宠", bg=self._HEADER_BG,
+                 fg="#ffffff", font=("Microsoft YaHei UI", 11, "bold"),
+                 padx=14, pady=8).pack(side="left")
 
         card = tk.Frame(win, bg=self._CARD_BG, padx=14, pady=10)
-        card.pack(fill="x", padx=16, pady=4)
+        card.pack(fill="x", padx=16, pady=(10, 4))
 
         self._label(card, "桌宠名:").grid(row=0, column=0, sticky="e", **pad)
         self.name_var = tk.StringVar()
@@ -896,33 +1188,33 @@ class PetCreatorDialog:
     def _add_idle_row(self):
         f = self._idle_frame; row = len(self._idle_entries)
         pv = tk.StringVar(); wv = tk.IntVar(value=2)
-        tk.Label(f, text=f"idle {row+1}:", bg=self._CARD_BG, fg=self._WHITE).grid(row=row, column=0, padx=6)
-        tk.Entry(f, textvariable=pv, width=24, bg="#2b1a2e", fg=self._WHITE,
-                 insertbackground=self._WHITE, relief="flat",
-                 highlightthickness=1, highlightbackground=self._GRAY).grid(row=row, column=1, padx=4, pady=3)
+        tk.Label(f, text=f"idle {row+1}:", bg=self._CARD_BG, fg=self._TEXT).grid(row=row, column=0, padx=6)
+        tk.Entry(f, textvariable=pv, width=24, bg=self._BG, fg=self._TEXT,
+                 insertbackground=self._TEXT, relief="flat",
+                 highlightthickness=1, highlightbackground=self._SEP).grid(row=row, column=1, padx=4, pady=3)
         tk.Button(f, text="浏览", bg=self._CARD_BG, fg=self._PINK, relief="flat",
                   command=lambda v=pv: self._browse_var(v, [("GIF", "*.gif")])).grid(row=row, column=2, padx=4)
         tk.Label(f, text="权重:", bg=self._CARD_BG, fg=self._GRAY).grid(row=row, column=3, padx=4)
         tk.Spinbox(f, from_=1, to=99, textvariable=wv, width=4,
-                   bg="#2b1a2e", fg=self._PINK, insertbackground=self._PINK,
+                   bg=self._BG, fg=self._PINK, insertbackground=self._PINK,
                    buttonbackground=self._CARD_BG, relief="flat").grid(row=row, column=4, padx=4)
         self._idle_entries.append((pv, wv))
 
     def _add_move_row(self):
         f = self._move_frame; row = len(self._move_entries)
         pv = tk.StringVar(); wv = tk.IntVar(value=1); fv = tk.BooleanVar(); dv = tk.StringVar(value="left")
-        tk.Label(f, text=f"move {row+1}:", bg=self._CARD_BG, fg=self._WHITE).grid(row=row, column=0, padx=6)
-        tk.Entry(f, textvariable=pv, width=24, bg="#2b1a2e", fg=self._WHITE,
-                 insertbackground=self._WHITE, relief="flat",
-                 highlightthickness=1, highlightbackground=self._GRAY).grid(row=row, column=1, padx=4, pady=3)
+        tk.Label(f, text=f"move {row+1}:", bg=self._CARD_BG, fg=self._TEXT).grid(row=row, column=0, padx=6)
+        tk.Entry(f, textvariable=pv, width=24, bg=self._BG, fg=self._TEXT,
+                 insertbackground=self._TEXT, relief="flat",
+                 highlightthickness=1, highlightbackground=self._SEP).grid(row=row, column=1, padx=4, pady=3)
         tk.Button(f, text="浏览", bg=self._CARD_BG, fg=self._PINK, relief="flat",
                   command=lambda v=pv: self._browse_var(v, [("GIF", "*.gif")])).grid(row=row, column=2, padx=4)
         tk.Label(f, text="权重:", bg=self._CARD_BG, fg=self._GRAY).grid(row=row, column=3, padx=4)
         tk.Spinbox(f, from_=1, to=99, textvariable=wv, width=4,
-                   bg="#2b1a2e", fg=self._PINK, insertbackground=self._PINK,
+                   bg=self._BG, fg=self._PINK, insertbackground=self._PINK,
                    buttonbackground=self._CARD_BG, relief="flat").grid(row=row, column=4, padx=4)
         tk.Checkbutton(f, text="翻转", variable=fv, bg=self._CARD_BG, fg=self._PINK,
-                       selectcolor="#2b1a2e", activebackground=self._CARD_BG).grid(row=row, column=5, padx=4)
+                       selectcolor=self._BG, activebackground=self._CARD_BG).grid(row=row, column=5, padx=4)
         ttk.Combobox(f, textvariable=dv, values=["left", "right"], width=5, state="readonly").grid(row=row, column=6, padx=4)
         self._move_entries.append((pv, wv, fv, dv))
 
@@ -960,29 +1252,34 @@ class PetCreatorDialog:
 
 
 class AboutDialog:
-    _BG      = "#2b1a2e"
-    _CARD_BG = "#3d2445"
-    _PINK    = "#ffb6d5"
-    _WHITE   = "#ffffff"
-    _GRAY    = "#9c7aaa"
+    _BG        = "#fff0f5"
+    _CARD_BG   = "#ffe0ee"
+    _HEADER_BG = "#ffb6d5"
+    _PINK      = "#e0457a"
+    _TEXT      = "#5a1a3a"
+    _GRAY      = "#c47a9a"
 
     def __init__(self, parent_root):
         self.win = tk.Toplevel(parent_root); win = self.win
         win.title(f"关于 {APP_NAME}"); set_window_icon(win)
         win.configure(bg=self._BG); win.resizable(False, False)
 
-        tk.Label(win, text="♪ " + APP_NAME, bg=self._BG, fg=self._PINK,
-                 font=("Microsoft YaHei UI", 15, "bold")).pack(pady=(18, 4))
+        # Pink header stripe
+        header = tk.Frame(win, bg=self._HEADER_BG)
+        header.pack(fill="x")
+        tk.Label(header, text=f"🐾  {APP_NAME}", bg=self._HEADER_BG,
+                 fg="#ffffff", font=("Microsoft YaHei UI", 12, "bold"),
+                 padx=14, pady=10).pack(side="left")
 
         card = tk.Frame(win, bg=self._CARD_BG, padx=20, pady=14)
-        card.pack(fill="x", padx=20, pady=8)
+        card.pack(fill="x", padx=20, pady=(12, 8))
 
-        tk.Label(card, text=f"版本: {VERSION}", bg=self._CARD_BG, fg=self._WHITE,
+        tk.Label(card, text=f"版本: {VERSION}", bg=self._CARD_BG, fg=self._TEXT,
                  font=_FONT_NORMAL).pack(anchor="w", pady=2)
         tk.Label(card, text=f"作者: {AUTHOR}  ({AUTHOR_EMAIL})", bg=self._CARD_BG, fg=self._GRAY,
                  font=_FONT_NORMAL).pack(anchor="w", pady=2)
 
-        link = tk.Label(card, text=GITHUB_URL, bg=self._CARD_BG, fg="#82cfff",
+        link = tk.Label(card, text=GITHUB_URL, bg=self._CARD_BG, fg=self._PINK,
                         cursor="hand2", font=_FONT_SMALL)
         link.pack(anchor="w", pady=2)
         link.bind("<Button-1>", lambda e: self._open_url(GITHUB_URL))
@@ -999,9 +1296,9 @@ class AboutDialog:
         self._status_lbl.pack(padx=16, pady=(0, 4))
 
         self._dl_btn = tk.Button(win, text="⬇  前往下载最新版本", font=_FONT_NORMAL,
-                                  bg="#1565c0", fg=self._WHITE, cursor="hand2",
+                                  bg=self._PINK, fg="#ffffff", cursor="hand2",
                                   relief="flat", padx=12, command=self._open_releases)
-        tk.Button(win, text="关闭", bg=self._CARD_BG, fg=self._GRAY,
+        tk.Button(win, text="关闭", bg=self._CARD_BG, fg=self._TEXT,
                   font=_FONT_NORMAL, relief="flat", padx=12,
                   command=win.destroy).pack(pady=10)
 
@@ -1035,13 +1332,13 @@ class AboutDialog:
         if kind == "new":
             _, lt, lu, lb = result
             self._status_var.set(f"🎉 发现新版本 v{lt}！（当前 v{VERSION}）\n" + (f"更新内容：{lb[:200]}" if lb else ""))
-            self._status_lbl.config(fg="#82cfff"); self._dl_btn.pack(pady=(0,6))
+            self._status_lbl.config(fg=self._PINK); self._dl_btn.pack(pady=(0,6))
         elif kind == "latest":
-            self._status_var.set(f"✅ 已是最新版本（v{VERSION}）"); self._status_lbl.config(fg="#6fcf97")
+            self._status_var.set(f"✅ 已是最新版本（v{VERSION}）"); self._status_lbl.config(fg="#4caf50")
         elif kind == "dev":
             self._status_var.set(f"🛠 当前版本（v{VERSION}）比最新发布版（v{result[1]}）更新，可能是开发版。"); self._status_lbl.config(fg=self._PINK)
         else:
-            self._status_var.set(f"❌ 检查失败：{result[1]}\n请检查网络连接或访问 GitHub 手动查看。"); self._status_lbl.config(fg="#ff6b6b")
+            self._status_var.set(f"❌ 检查失败：{result[1]}\n请检查网络连接或访问 GitHub 手动查看。"); self._status_lbl.config(fg="#c0394e")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1102,12 +1399,14 @@ class TrayApp:
         return fn
 
     def _toggle_mouse_follow(self, icon, mi):
-        nv = not self.cfg.get("mouse_follow", False); self.cfg["mouse_follow"] = nv
-        if self.pet_win: self.pet_win.root.after(0, lambda: self.pet_win.set_mouse_follow(nv))
+        if self.pet_win:
+            self.pet_win.root.after(0, lambda: self.pet_win.set_mouse_follow(
+                not self.cfg.get("mouse_follow", False)))
 
     def _toggle_always_on_top(self, icon, mi):
-        nv = not self.cfg.get("always_on_top", True); self.cfg["always_on_top"] = nv
-        if self.pet_win: self.pet_win.root.after(0, lambda: self.pet_win.set_always_on_top(nv))
+        if self.pet_win:
+            self.pet_win.root.after(0, lambda: self.pet_win.set_always_on_top(
+                not self.cfg.get("always_on_top", True)))
 
     def _toggle_autostart(self, icon=None, mi=None):
         cur = get_autostart(); ok = set_autostart(not cur)
@@ -1140,27 +1439,9 @@ class TrayApp:
         if self.tray: self.tray.stop()
 
     def _build_menu(self):
-        return Menu(
-            item("切换桌宠",          Menu(self._pet_submenu)),
-            item("删除桌宠",          Menu(self._del_pet_submenu)),
-            item("桌宠大小",          Menu(self._scale_submenu)),
-            item("透明度",            Menu(self._opacity_submenu)),
-            item("速度",              Menu(self._speed_submenu)),
-            item("鼠标跟随",          self._toggle_mouse_follow,
-                 checked=lambda _: self.cfg.get("mouse_follow", False)),
-            item("最上层显示",        self._toggle_always_on_top,
-                 checked=lambda _: self.cfg.get("always_on_top", True)),
-            item("开机自启动",        self._toggle_autostart,
-                 checked=lambda _: get_autostart()),
-            Menu.SEPARATOR,
-            item("音乐播放器",     self._open_music_player),
-            item("调整状态权重",      self._open_weight_editor),
-            item("调整运动方向反转",  self._open_flip_editor),
-            item("创建桌宠",          self._open_creator),
-            item("关于",              self._open_about),
-            Menu.SEPARATOR,
-            item("退出",              self._quit),
-        )
+        # System tray right-click menu is intentionally disabled.
+        # All controls are available via the pet's own right-click context menu.
+        return None
 
     def _load_tray_icon(self):
         if os.path.exists(APP_ICO):

@@ -101,7 +101,7 @@ When enabled, the pet chases your cursor around the screen. As the cursor approa
 ### ⚙️ System
 
 - **Autostart** — launch with Windows
-- **System tray icon** — full menu accessible without opening any window
+- **System tray icon** — minimalist tray presence; all controls are in the pet's right-click menu
 - **Check for updates** — built into the About dialog
 
 ---
@@ -176,7 +176,7 @@ When `default_dir` is `"left"`: moving left does not flip the sprite; moving rig
 
 ## Right-Click Context Menu
 
-Right-clicking the pet or the system tray icon opens the menu:
+Right-clicking the pet opens the menu. The system tray icon has no right-click menu — all controls are accessed through the pet directly.
 
 | Menu Item | Function |
 |-----------|----------|

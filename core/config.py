@@ -6,7 +6,7 @@ import os
 import json
 
 # ── App Info ──────────────────────────────────────────────────────────────────
-VERSION      = "1.1.0"
+VERSION      = "1.1.2"
 APP_NAME     = "Desktop Hachimi"
 AUTHOR       = "Edward"
 AUTHOR_EMAIL = "lingzhanye4@gmail.com"

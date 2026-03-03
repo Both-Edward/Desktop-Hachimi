@@ -4,7 +4,7 @@
   "opacity": 1.0,
   "speed": 3,
   "mouse_follow": false,
-  "always_on_top": false,
+  "always_on_top": true,
   "x": 2083,
   "y": 509
 }
