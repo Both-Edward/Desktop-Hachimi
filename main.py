@@ -1,5 +1,5 @@
 """
-Desktop Hachimi – main entry point v1.1.2
+Desktop Hachimi – main entry point v1.1.3
 Refactored: frontend/backend separation for Windows / Linux (KDE) / macOS support.
   core/            – pure logic (config, gif loading, pet data)
   compat/          – OS-specific helpers (autostart, DPI awareness, trash)
@@ -423,6 +423,8 @@ class PetWindow:
                 arrow_lbl.bind("<Enter>", on_enter); arrow_lbl.bind("<Leave>", on_leave)
             return row
 
+        _any_sub_open = [False]  # 共享标志：是否有子菜单正在显示
+
         def make_submenu_item(parent, label, build_sub_fn):
             row = tk.Frame(parent, bg=T.BG, cursor="hand2")
             row.pack(fill="x")
@@ -440,7 +442,7 @@ class PetWindow:
 
             def _cancel_close():
                 if _close_id[0]:
-                    try: win.after_cancel(_close_id[0])
+                    try: self.root.after_cancel(_close_id[0])
                     except Exception: pass
                     _close_id[0] = None
 
@@ -450,6 +452,7 @@ class PetWindow:
                     try: _sub_win[0].destroy()
                     except: pass
                     _sub_win[0] = None
+                _any_sub_open[0] = False
 
             def _mouse_inside_sub():
                 """Return True if the pointer is currently over the sub-window."""
@@ -475,9 +478,10 @@ class PetWindow:
             def open_sub(e, r=row):
                 _cancel_close()
                 close_sub()
+                _any_sub_open[0] = True
                 sx = win.winfo_x() + win.winfo_width()
                 sy = win.winfo_y() + r.winfo_y()
-                sub = tk.Toplevel(win)
+                sub = tk.Toplevel(self.root)
                 _sub_win[0] = sub
                 sub.overrideredirect(True)
                 sub.attributes("-topmost", True)
@@ -498,7 +502,7 @@ class PetWindow:
 
             def _schedule_close():
                 _cancel_close()
-                _close_id[0] = win.after(120, _delayed_close)
+                _close_id[0] = self.root.after(120, _delayed_close)
 
             def on_enter(e, r=row, widgets=(ck, lbl, arrow)):
                 _cancel_close()          # mouse came back – cancel any pending close
@@ -533,9 +537,15 @@ class PetWindow:
                 tl.pack(side="left", fill="x", expand=True)
                 def _on_e(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=T.HOVER_BG); cc.config(bg=T.HOVER_BG); tt.config(bg=T.HOVER_BG)
                 def _on_l(e, rr=r, cc=ck_l, tt=tl): rr.config(bg=T.BG); cc.config(bg=T.BG); tt.config(bg=T.BG)
+                def _sub_item_click(e, c=cmd, cf=close_sub_fn):
+                    try: cf()
+                    except Exception: pass
+                    try: close_menu()
+                    except Exception: pass
+                    self.root.after(10, c)
                 for w in (r, ck_l, tl):
                     w.bind("<Enter>", _on_e); w.bind("<Leave>", _on_l)
-                    w.bind("<Button-1>", lambda e, c=cmd, cf=close_sub_fn: (close_menu(), cf(), self.root.after(10, c)))
+                    w.bind("<Button-1>", _sub_item_click)
 
         def build_pet_sub(sf, sub, csf):
             _build_simple_sub(
@@ -550,9 +560,15 @@ class PetWindow:
                 tl.pack(side="left", fill="x", expand=True)
                 def _on_e(e, rr=r, tt=tl): rr.config(bg=T.HOVER_BG); tt.config(bg=T.HOVER_BG)
                 def _on_l(e, rr=r, tt=tl): rr.config(bg=T.BG); tt.config(bg=T.BG)
+                def _del_click(e, n=p, cf=csf):
+                    try: cf()
+                    except Exception: pass
+                    try: close_menu()
+                    except Exception: pass
+                    self.root.after(10, lambda name=n: self._delete_pet(name))
                 for w in (r, tl): w.bind("<Enter>", _on_e); w.bind("<Leave>", _on_l)
-                r.bind("<Button-1>", lambda e, n=p: (close_menu(), csf(), self.root.after(10, lambda: self._delete_pet(n))))
-                tl.bind("<Button-1>", lambda e, n=p: (close_menu(), csf(), self.root.after(10, lambda: self._delete_pet(n))))
+                r.bind("<Button-1>", _del_click)
+                tl.bind("<Button-1>", _del_click)
 
         def build_scale_sub(sf, sub, csf):
             _build_simple_sub(
@@ -620,6 +636,9 @@ class PetWindow:
 
         def on_focus_out(e):
             try:
+                # 有子菜单打开时不关闭主菜单（子菜单是self.root的子窗口，不是win的）
+                if _any_sub_open[0]:
+                    return
                 if win.winfo_exists(): close_menu()
             except Exception: pass
 
