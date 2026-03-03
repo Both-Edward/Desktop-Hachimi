@@ -63,16 +63,17 @@ State transitions happen on a 5-second timer according to configurable weights (
 The built-in music player is linked directly to the pet's behavior:
 
 - When a song **starts playing**, the pet immediately enters the **Dynamic** state and stays there for the entire duration of the track.
-- When the song **stops or is paused**, the pet is released and randomly transitions to one of its other states (Idle, Move, or Dynamic) based on the configured weights.
-- This lock is respected by all other state systems — the 5-second autonomous timer, mouse-follow logic, and movement triggers will not override the Dynamic state while music is playing.
+- When the song **stops or is paused**, the pet is released and randomly transitions to one of its other states based on the configured weights.
+- This lock is respected by all other state systems — the autonomous timer, mouse-follow logic, and movement triggers will not override Dynamic state while music is playing.
 
 ### 🎵 Music Player
 
-Open via right-click menu → **Music Player**, or from the system tray.
+Open via right-click menu on the pet → **Music Player**.
 
 - Supports MP3, WAV, OGG, FLAC, AAC, M4A, WMA
 - Playback modes: Loop All / Loop One / Play Once
 - Controls: Previous, Play/Pause, Next
+- Draggable progress bar with time display
 - Double-click a track in the playlist to jump to it
 - Add tracks from anywhere on your computer (copied into the `Music/` folder)
 - Delete tracks to the recycle bin
@@ -90,7 +91,7 @@ When enabled, the pet chases your cursor around the screen. As the cursor approa
 - **Opacity** — 10% to 100% in steps of 10%
 - **Speed** — 10 levels
 - **State Weights** — adjust how often each state appears via the weight editor
-- **Motion Flip** — configure per-move-variant whether the sprite flips horizontally when travelling in a non-default direction
+- **Motion Flip** — configure per-move-variant whether the sprite flips horizontally
 
 ### 🖥️ Display
 
@@ -101,82 +102,14 @@ When enabled, the pet chases your cursor around the screen. As the cursor approa
 ### ⚙️ System
 
 - **Autostart** — launch with Windows
-- **System tray icon** — minimalist tray presence; all controls are in the pet's right-click menu
+- **System tray icon** — shows the app in the system tray; double-click to focus the pet
 - **Check for updates** — built into the About dialog
-
----
-
-## Directory Structure
-
-```
-Desktop-Hachimi/
-├── main.py
-├── requirements.txt
-├── config.json              <- Auto-generated user settings
-├── core/                    <- Core logic (config, GIF loader, pet data)
-├── ui/                      <- UI components (pet window, music player)
-├── compat/                  <- Platform helpers (autostart, DPI, trash)
-├── ico/                     <- UI and window icons
-├── Music/                   <- Music folder (add your tracks here)
-└── Pets/
-    └── Ameath/              <- Default pet folder
-        ├── Ameath.ico       <- Pet icon
-        ├── Ameath.gif       <- Dynamic state animation
-        ├── drag.gif         <- Drag state animation
-        ├── idle.gif         <- Idle state (single file)
-        │   or idle1.gif, idle2.gif ...
-        ├── move.gif         <- Move state (single file)
-        │   or move1.gif, move2.gif ...
-        ├── weights.json     <- State weights
-        └── flip.json        <- Motion flip config (optional)
-```
-
----
-
-## weights.json Format
-
-```json
-{
-  "dynamic_weight": 3,
-  "idle_weight": [2],
-  "move_weight": [1]
-}
-```
-
-If there are multiple idle/move GIFs, the weight array length must match the number of files:
-
-```json
-{
-  "dynamic_weight": 3,
-  "idle_weight": [2, 3],
-  "move_weight": [1, 2, 1]
-}
-```
-
----
-
-## flip.json Format
-
-```json
-{
-  "move": {
-    "enabled": true,
-    "default_dir": "left"
-  },
-  "move2": {
-    "enabled": true,
-    "default_dir": "right"
-  }
-}
-```
-
-When `default_dir` is `"left"`: moving left does not flip the sprite; moving right flips it.
 
 ---
 
 ## Right-Click Context Menu
 
-Right-clicking the pet opens the menu. The system tray icon has no right-click menu — all controls are accessed through the pet directly.
+Right-clicking the **pet sprite** opens the full control menu. The system tray icon only has a minimal **Exit** item — all features are accessible from the pet's right-click menu.
 
 | Menu Item | Function |
 |-----------|----------|
@@ -194,6 +127,83 @@ Right-clicking the pet opens the menu. The system tray icon has no right-click m
 | Create Pet | Open the pet creation wizard |
 | About | Software info and update check |
 | Exit | Close the program |
+
+---
+
+## Directory Structure
+
+```
+Desktop-Hachimi/
+├── main.py                  <- Application entry point
+├── requirements.txt
+├── config.json              <- Auto-generated user settings
+├── core/                    <- Backend: config, GIF loader, pet data
+├── ui/                      <- Frontend: all tkinter UI components
+│   ├── theme.py             <- ★ Centralized UI color palette & styles
+│   ├── music_player.py      <- Music player dialog
+│   └── helpers.py           <- Shared UI utilities
+├── compat/                  <- Platform helpers (autostart, DPI, trash)
+├── ico/                     <- UI and window icons
+├── Music/                   <- Music folder (add your tracks here)
+└── Pets/
+    └── Ameath/              <- Default pet folder
+        ├── Ameath.ico
+        ├── Ameath.gif       <- Dynamic state animation
+        ├── drag.gif         <- Drag state animation
+        ├── idle.gif         <- Idle state (single file)
+        │   or idle1.gif, idle2.gif ...
+        ├── move.gif         <- Move state (single file)
+        │   or move1.gif, move2.gif ...
+        ├── weights.json     <- State weights
+        └── flip.json        <- Motion flip config (optional)
+```
+
+---
+
+## UI Theming
+
+All UI colors, fonts, and button styles are centralized in **`ui/theme.py`**. To change the visual style of all dialogs and the music player at once, simply edit the constants in that file — no hunting through individual dialog classes needed.
+
+Key constants in `ui/theme.py`:
+
+| Constant | Purpose |
+|----------|---------|
+| `BG` | Main dialog background |
+| `CARD_BG` | Inner card / panel background |
+| `HEADER_BG` | Header stripe color |
+| `PINK` | Accent color (buttons, highlights) |
+| `TEXT` | Primary text color |
+| `BTN_SAVE` | Style dict for save/confirm buttons |
+| `BTN_CLOSE` | Style dict for close/cancel buttons |
+
+---
+
+## weights.json Format
+
+```json
+{
+  "dynamic_weight": 3,
+  "idle_weight": [2],
+  "move_weight": [1]
+}
+```
+
+If there are multiple idle/move GIFs, the weight array length must match the number of files.
+
+---
+
+## flip.json Format
+
+```json
+{
+  "move": {
+    "enabled": true,
+    "default_dir": "left"
+  }
+}
+```
+
+When `default_dir` is `"left"`: moving left does not flip the sprite; moving right flips it.
 
 ---
 

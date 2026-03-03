@@ -1,14 +1,11 @@
 """
-ui/music_player.py – MusicPlayerDialog: pixel-art music player window.
+ui/music_player.py – MusicPlayerDialog: music player window.
+
+Uses the shared pink/white theme from ui/theme.py.
 
 Playback modes:  loop_all | loop_one | loop_none
 Controls:        prev, play/pause, next, add, delete
 Music lives in:  <BASE_DIR>/Music/
-
-Changes:
-  - Added draggable progress bar showing current playback position & time
-  - Fixed: closing dialog does NOT stop music / auto-loop; a background
-    thread continues to handle end-of-track logic even when the window is gone
 """
 
 import os
@@ -17,10 +14,10 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-from core.config import MUSIC_DIR, FONT_NORMAL, FONT_BOLD, FONT_SMALL
-from core.config import get_music_files
+from core.config import MUSIC_DIR
 from ui.helpers import set_window_icon, load_ico_image
 from compat.trash import move_to_trash
+import ui.theme as T
 
 
 # ── Try to import pygame for audio ────────────────────────────────────────────
@@ -31,7 +28,7 @@ try:
 except Exception:
     _PYGAME_OK = False
 
-# ── Try tkinter-based audio fallback ─────────────────────────────────────────
+
 def _play_file_fallback(path: str):
     import sys, subprocess
     if sys.platform == "win32":
@@ -86,13 +83,13 @@ class MusicPlayer:
         self.playing: bool      = False
         self.mode: str          = self.MODE_LOOP_ALL
         self._pos_ms: int       = 0
-        # timing helpers for smooth progress
-        self._play_start_pos_ms: int   = 0
-        self._play_start_time: float   = 0.0
-        self._duration_ms: int         = 0
+        self._play_start_pos_ms: int  = 0
+        self._play_start_time: float  = 0.0
+        self._duration_ms: int        = 0
         self._reload_playlist()
 
     def _reload_playlist(self):
+        from core.config import get_music_files
         self.playlist = get_music_files()
         if self.current_idx >= len(self.playlist):
             self.current_idx = 0
@@ -226,7 +223,7 @@ class MusicPlayer:
         return os.path.splitext(os.path.basename(self.playlist[self.current_idx]))[0]
 
 
-# ── Background monitor (keeps looping after dialog closes) ───────────────────
+# ── Background monitor ────────────────────────────────────────────────────────
 
 class _BackgroundMonitor:
     """
@@ -237,7 +234,7 @@ class _BackgroundMonitor:
     def __init__(self, player: MusicPlayer, root: tk.Misc):
         self.player  = player
         self.root    = root
-        self._cb     = None   # UI refresh callback (set when dialog is open)
+        self._cb     = None
         self._active = True
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -271,23 +268,12 @@ class _BackgroundMonitor:
 # ── Dialog ────────────────────────────────────────────────────────────────────
 
 class MusicPlayerDialog:
-    """Pixel-art styled music player Toplevel window."""
-
-    _BG       = "#2b1a2e"
-    _CARD_BG  = "#3d2445"
-    _PINK     = "#ffb6d5"
-    _WHITE    = "#ffffff"
-    _GRAY     = "#9c7aaa"
-    _SEL_BG   = "#6b3278"
-    _PB_TRACK = "#5a3865"
-    _PB_FILL  = "#ffb6d5"
-    _PB_THUMB = "#ffffff"
+    """Pink/white themed music player Toplevel window (matches context menu style)."""
 
     def __init__(self, parent, player=None, monitor=None):
         self.player  = player or MusicPlayer()
         self._images = {}
 
-        # Resolve real root for after() scheduling
         root = parent
         while isinstance(root, tk.Toplevel):
             root = root.master
@@ -300,11 +286,11 @@ class MusicPlayerDialog:
 
         self.win = tk.Toplevel(parent)
         self.win.title("音乐播放器")
-        self.win.configure(bg=self._BG)
+        self.win.configure(bg=T.BG)
         self.win.resizable(False, False)
         set_window_icon(self.win)
 
-        self._pb_dragging = False
+        self._pb_dragging  = False
         self._pb_drag_frac = 0.0
 
         self._build_ui()
@@ -322,92 +308,103 @@ class MusicPlayerDialog:
     # ── UI ────────────────────────────────────────────────────────────────
     def _build_ui(self):
         win = self.win
-        bg, cbg, pk, wh, gr = self._BG, self._CARD_BG, self._PINK, self._WHITE, self._GRAY
 
-        tk.Label(win, text="♪ Desktop Hachimi 音乐播放器",
-                 bg=bg, fg=pk, font=("Microsoft YaHei UI", 12, "bold")).pack(pady=(12, 4))
+        # Header
+        header = tk.Frame(win, bg=T.HEADER_BG)
+        header.pack(fill="x")
+        tk.Label(header, text="🎵  Desktop Hachimi 音乐播放器",
+                 bg=T.HEADER_BG, fg=T.WHITE,
+                 font=T.FONT_LARGE, padx=16, pady=10).pack(side="left")
 
         # Now-playing card
-        card = tk.Frame(win, bg=cbg, bd=0)
-        card.pack(fill="x", padx=16, pady=4)
+        card = tk.Frame(win, bg=T.CARD_BG, bd=0)
+        card.pack(fill="x", padx=16, pady=(12, 4))
 
         self._title_var = tk.StringVar(value="──")
         tk.Label(card, textvariable=self._title_var,
-                 bg=cbg, fg=wh, font=("Microsoft YaHei UI", 11, "bold"),
+                 bg=T.CARD_BG, fg=T.TEXT,
+                 font=T.FONT_BOLD,
                  wraplength=320, justify="center").pack(pady=(10, 2))
+
         self._idx_var = tk.StringVar(value="0 / 0")
         tk.Label(card, textvariable=self._idx_var,
-                 bg=cbg, fg=gr, font=_SZ(8)).pack(pady=(0, 4))
+                 bg=T.CARD_BG, fg=T.TEXT_LIGHT, font=T.FONT_SMALL).pack(pady=(0, 4))
 
-        # Progress bar section
-        pb_outer = tk.Frame(card, bg=cbg)
+        # Progress bar
+        pb_outer = tk.Frame(card, bg=T.CARD_BG)
         pb_outer.pack(fill="x", padx=12, pady=(0, 6))
 
         self._time_var = tk.StringVar(value="0:00 / 0:00")
         tk.Label(pb_outer, textvariable=self._time_var,
-                 bg=cbg, fg=gr, font=_SZ(8)).pack(anchor="e", pady=(0, 2))
+                 bg=T.CARD_BG, fg=T.TEXT_LIGHT, font=T.FONT_SMALL).pack(anchor="e", pady=(0, 2))
 
-        self._pb = tk.Canvas(pb_outer, bg=cbg, height=18,
+        self._pb = tk.Canvas(pb_outer, bg=T.CARD_BG, height=18,
                              highlightthickness=0, cursor="hand2")
         self._pb.pack(fill="x", pady=(0, 4))
         self._pb.bind("<ButtonPress-1>",  self._pb_press)
-        self._pb.bind("<B1-Motion>",       self._pb_drag)
+        self._pb.bind("<B1-Motion>",      self._pb_drag)
         self._pb.bind("<ButtonRelease-1>", self._pb_release)
-        self._pb.bind("<Configure>",       lambda _e: self._draw_pb())
+        self._pb.bind("<Configure>",      lambda _e: self._draw_pb())
 
         # Controls
-        ctrl = tk.Frame(win, bg=bg)
-        ctrl.pack(pady=8)
-        kw = dict(bg=bg, bd=0, activebackground=cbg, cursor="hand2", relief="flat")
+        ctrl = tk.Frame(win, bg=T.BG)
+        ctrl.pack(pady=10)
+        kw = dict(bg=T.BG, bd=0, activebackground=T.HOVER_BG, cursor="hand2", relief="flat")
 
         self._mode_btn = tk.Button(ctrl, **kw, command=self._on_mode)
         self._mode_btn.grid(row=0, column=0, padx=6)
 
         b = tk.Button(ctrl, **kw, command=self._on_prev)
-        _set_img_or_text(b, self._ico("prev.ico"), "⏮", fg=wh)
+        _set_img_or_text(b, self._ico("prev.ico"), "⏮", fg=T.TEXT)
         b.grid(row=0, column=1, padx=6)
 
         self._pp_btn = tk.Button(ctrl, **kw, command=self._on_play_pause)
         self._pp_btn.grid(row=0, column=2, padx=6)
 
         b = tk.Button(ctrl, **kw, command=self._on_next)
-        _set_img_or_text(b, self._ico("next.ico"), "⏭", fg=wh)
+        _set_img_or_text(b, self._ico("next.ico"), "⏭", fg=T.TEXT)
         b.grid(row=0, column=3, padx=6)
 
-        tk.Frame(ctrl, bg=bg, width=12).grid(row=0, column=4)
+        tk.Frame(ctrl, bg=T.BG, width=12).grid(row=0, column=4)
 
         b = tk.Button(ctrl, **kw, command=self._on_add)
-        _set_img_or_text(b, self._ico("music_add.ico"), "➕", fg=pk)
+        _set_img_or_text(b, self._ico("music_add.ico"), "➕", fg=T.PINK)
         b.grid(row=0, column=5, padx=4)
 
         b = tk.Button(ctrl, **kw, command=self._on_delete)
-        _set_img_or_text(b, self._ico("music_del.ico"), "🗑", fg=pk)
+        _set_img_or_text(b, self._ico("music_del.ico"), "🗑", fg=T.PINK)
         b.grid(row=0, column=6, padx=4)
 
+        # Separator
+        tk.Frame(win, bg=T.SEP, height=1).pack(fill="x", padx=16, pady=(4, 0))
+
         # Playlist
-        lf = tk.Frame(win, bg=cbg, bd=0)
-        lf.pack(fill="both", expand=True, padx=16, pady=(4, 16))
+        lf = tk.Frame(win, bg=T.CARD_BG, bd=0)
+        lf.pack(fill="both", expand=True, padx=16, pady=(4, 4))
         sb = tk.Scrollbar(lf, orient="vertical")
         self._listbox = tk.Listbox(
             lf, yscrollcommand=sb.set,
-            bg=cbg, fg=wh, selectbackground=self._SEL_BG, selectforeground=wh,
-            font=_SZ(10), bd=0, highlightthickness=0, activestyle="none",
+            **T.LISTBOX_STYLE,
+            font=T.FONT_NORMAL,
             width=42, height=10,
         )
         sb.config(command=self._listbox.yview)
-        self._listbox.pack(side="left", fill="both", expand=True, padx=(8,0), pady=8)
+        self._listbox.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
         sb.pack(side="right", fill="y", pady=8)
         self._listbox.bind("<Double-Button-1>", self._on_list_dbl)
+
+        # Close button at bottom
+        bf = tk.Frame(win, bg=T.BG)
+        bf.pack(pady=10)
+        tk.Button(bf, text="关闭", command=self._on_close, **T.BTN_CLOSE).pack()
+
         self._refresh_controls()
 
     # ── Progress bar ──────────────────────────────────────────────────────
     def _draw_pb(self, override_frac=None):
-        c = self._pb
-        w = c.winfo_width()
-        h = c.winfo_height()
+        c = self._pb; w = c.winfo_width(); h = c.winfo_height()
         if w <= 1:
             return
-
         p = self.player
         if override_frac is not None:
             frac = max(0.0, min(1.0, override_frac))
@@ -417,17 +414,14 @@ class MusicPlayerDialog:
         else:
             frac = 0.0
 
-        tr, yr = 6, h // 2
-        pad = tr
-        usable = w - 2 * pad
+        tr, yr = 6, h // 2; pad = tr; usable = w - 2 * pad
         x_fill = pad + int(usable * frac)
-
         c.delete("all")
-        _rounded_rect(c, pad, yr-3, w-pad, yr+3, 3, fill=self._PB_TRACK, outline="")
+        _rounded_rect(c, pad, yr-3, w-pad, yr+3, 3, fill=T.PB_TRACK, outline="")
         if frac > 0:
-            _rounded_rect(c, pad, yr-3, x_fill, yr+3, 3, fill=self._PB_FILL, outline="")
+            _rounded_rect(c, pad, yr-3, x_fill, yr+3, 3, fill=T.PB_FILL, outline="")
         c.create_oval(x_fill-tr, yr-tr, x_fill+tr, yr+tr,
-                      fill=self._PB_THUMB, outline=self._PB_FILL, width=2)
+                      fill=T.PB_THUMB, outline=T.PB_FILL, width=2)
 
         if p._duration_ms > 0:
             pos_s = int((frac * p._duration_ms) / 1000) if self._pb_dragging else int(p.get_position_ms() / 1000)
@@ -436,23 +430,17 @@ class MusicPlayerDialog:
             self._time_var.set("0:00 / 0:00")
 
     def _x_to_frac(self, x):
-        w = self._pb.winfo_width()
-        pad = 6
-        usable = w - 2 * pad
+        w = self._pb.winfo_width(); pad = 6; usable = w - 2 * pad
         return max(0.0, min(1.0, (x - pad) / usable)) if usable > 0 else 0.0
 
     def _pb_press(self, e):
-        self._pb_dragging = True
-        self._pb_drag_frac = self._x_to_frac(e.x)
-        self._draw_pb(self._pb_drag_frac)
+        self._pb_dragging = True; self._pb_drag_frac = self._x_to_frac(e.x); self._draw_pb(self._pb_drag_frac)
 
     def _pb_drag(self, e):
-        self._pb_drag_frac = self._x_to_frac(e.x)
-        self._draw_pb(self._pb_drag_frac)
+        self._pb_drag_frac = self._x_to_frac(e.x); self._draw_pb(self._pb_drag_frac)
 
     def _pb_release(self, e):
-        self._pb_dragging = False
-        frac = self._x_to_frac(e.x)
+        self._pb_dragging = False; frac = self._x_to_frac(e.x)
         if self.player._duration_ms > 0:
             self.player.seek(int(frac * self.player._duration_ms))
         self._draw_pb()
@@ -460,8 +448,7 @@ class MusicPlayerDialog:
     # ── Controls ──────────────────────────────────────────────────────────
     def _on_play_pause(self):
         p = self.player
-        if not p.playlist:
-            return
+        if not p.playlist: return
         if p.playing:
             p.pause()
         else:
@@ -484,8 +471,7 @@ class MusicPlayerDialog:
         sel = self._listbox.curselection()
         if sel:
             self.player.seek_to(sel[0])
-            if not self.player.playing:
-                self.player.playing = True
+            if not self.player.playing: self.player.playing = True
             self.player.play()
             self._refresh_controls()
 
@@ -500,11 +486,9 @@ class MusicPlayerDialog:
             messagebox.showinfo("添加音乐", f"已添加 {added} 首音乐。", parent=self.win)
 
     def _on_delete(self):
-        if not self.player.playlist:
-            return
+        if not self.player.playlist: return
         title = self.player.current_title
-        if not messagebox.askyesno("删除音乐", f"将「{title}」移至回收站？", parent=self.win):
-            return
+        if not messagebox.askyesno("删除音乐", f"将「{title}」移至回收站？", parent=self.win): return
         ok = self.player.delete_current()
         if ok:
             self._refresh_list()
@@ -513,33 +497,32 @@ class MusicPlayerDialog:
 
     def _refresh_list(self):
         self.player._reload_playlist()
-        lb = self._listbox
-        lb.delete(0, "end")
+        lb = self._listbox; lb.delete(0, "end")
         for path in self.player.playlist:
             lb.insert("end", "  " + os.path.splitext(os.path.basename(path))[0])
         self._refresh_controls()
 
     def _refresh_controls(self):
-        if not self.win.winfo_exists():
-            return
+        if not self.win.winfo_exists(): return
         p = self.player
         pp_ico = self._ico("pause.ico" if p.playing else "play.ico")
-        _set_img_or_text(self._pp_btn, pp_ico, "⏸" if p.playing else "▶", fg=self._WHITE)
+        _set_img_or_text(self._pp_btn, pp_ico, "⏸" if p.playing else "▶", fg=T.TEXT)
 
-        m = {MusicPlayer.MODE_LOOP_ALL:"loop_all.ico", MusicPlayer.MODE_LOOP_ONE:"loop_one.ico", MusicPlayer.MODE_LOOP_NONE:"loop_none.ico"}
-        mt = {MusicPlayer.MODE_LOOP_ALL:"🔁", MusicPlayer.MODE_LOOP_ONE:"🔂", MusicPlayer.MODE_LOOP_NONE:"▶ 1"}
-        _set_img_or_text(self._mode_btn, self._ico(m[p.mode]), mt[p.mode], fg=self._PINK)
+        m = {MusicPlayer.MODE_LOOP_ALL: "loop_all.ico",
+             MusicPlayer.MODE_LOOP_ONE: "loop_one.ico",
+             MusicPlayer.MODE_LOOP_NONE: "loop_none.ico"}
+        mt = {MusicPlayer.MODE_LOOP_ALL: "🔁",
+              MusicPlayer.MODE_LOOP_ONE: "🔂",
+              MusicPlayer.MODE_LOOP_NONE: "▶ 1"}
+        _set_img_or_text(self._mode_btn, self._ico(m[p.mode]), mt[p.mode], fg=T.PINK)
 
         self._title_var.set(p.current_title if p.playlist else "（无音乐）")
-        total = len(p.playlist)
-        cur   = (p.current_idx + 1) if total else 0
+        total = len(p.playlist); cur = (p.current_idx + 1) if total else 0
         self._idx_var.set(f"{cur} / {total}")
 
         if total:
-            lb = self._listbox
-            lb.selection_clear(0, "end")
-            lb.selection_set(p.current_idx)
-            lb.see(p.current_idx)
+            lb = self._listbox; lb.selection_clear(0, "end")
+            lb.selection_set(p.current_idx); lb.see(p.current_idx)
 
         if not self._pb_dragging:
             self._draw_pb()
@@ -549,21 +532,16 @@ class MusicPlayerDialog:
         self.win.destroy()
 
     def _tick(self):
-        if not self.win.winfo_exists():
-            return
-        if not self._pb_dragging:
-            self._draw_pb()
+        if not self.win.winfo_exists(): return
+        if not self._pb_dragging: self._draw_pb()
         self.win.after(250, self._tick)
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
-def _SZ(n):
-    return ("Microsoft YaHei UI", n)
-
-
-def _set_img_or_text(btn, image, text, fg="#ffffff"):
+def _set_img_or_text(btn, image, text, fg=None):
+    fg = fg or T.TEXT
     if image:
         btn.config(image=image, text="", width=24, height=24, compound="center")
     else:
-        btn.config(image="", text=text, fg=fg, font=("Microsoft YaHei UI", 14))
+        btn.config(image="", text=text, fg=fg, font=T.FONT_NORMAL)
