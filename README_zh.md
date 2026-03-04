@@ -93,6 +93,10 @@ python main.py
 - **状态权重** —— 通过权重编辑器调整各状态的出现概率
 - **运动方向反转** —— 为每个移动变体单独配置向非默认方向运动时是否水平翻转
 
+### 🌐 语言切换
+
+通过右键菜单 → **切换语言** 子菜单，随时在**中文**和 **English** 之间切换。所选语言会保存至 `config.json`，下次启动自动恢复。语言文件存放于 `Language/` 文件夹（`zh.json` / `en.json`）。
+
 ### 🖥️ 显示
 
 - **最上层显示** —— 桌宠始终显示在所有窗口之上
@@ -118,6 +122,7 @@ python main.py
 | 桌宠大小 | x0.1 ~ x2.0，步进 0.1 |
 | 透明度 | 10% ~ 100%，步进 10% |
 | 速度 | 1 ~ 10 档 |
+| 切换语言 | 在中文和 English 之间切换 |
 | 鼠标跟随 | 开启后桌宠跟随鼠标移动 |
 | 最上层显示 | 桌宠显示在所有窗口最前 |
 | 开机自启动 | 注册或移除 Windows 自启动项 |
@@ -138,12 +143,16 @@ Desktop-Hachimi/
 ├── requirements.txt
 ├── config.json              <- 自动生成，保存用户设置
 ├── core/                    <- 后端：配置、GIF 加载、桌宠数据
+│   └── i18n.py              <- 语言加载器（读取 Language/*.json）
 ├── ui/                      <- 前端：所有 tkinter UI 组件
 │   ├── theme.py             <- ★ 集中管理全局 UI 颜色与样式
 │   ├── music_player.py      <- 音乐播放器弹窗
 │   └── helpers.py           <- 公共 UI 工具函数
 ├── compat/                  <- 平台适配（自启动、DPI、回收站）
 ├── ico/                     <- UI 及窗口图标
+├── Language/                <- 语言包文件夹
+│   ├── zh.json              <- 中文字符串
+│   └── en.json              <- 英文字符串
 ├── Music/                   <- 音乐文件夹（在此添加曲目）
 └── Pets/
     └── Ameath/              <- 默认桌宠文件夹
@@ -178,6 +187,35 @@ Desktop-Hachimi/
 
 ---
 
+## config.json 字段说明
+
+```json
+{
+  "pet":           "Ameath",
+  "scale":         1.0,
+  "opacity":       1.0,
+  "speed":         3,
+  "mouse_follow":  false,
+  "always_on_top": true,
+  "x":             100,
+  "y":             100,
+  "language":      "zh"
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `pet` | 当前桌宠名称（须与 `Pets/` 下的文件夹名一致） |
+| `scale` | 缩放倍率（0.1 ~ 2.0） |
+| `opacity` | 窗口透明度（0.1 ~ 1.0） |
+| `speed` | 移动速度（1 ~ 10） |
+| `mouse_follow` | 是否开启鼠标跟随 |
+| `always_on_top` | 是否始终置顶 |
+| `x` / `y` | 上次保存的窗口位置 |
+| `language` | 界面语言代码 —— `"zh"` 或 `"en"` |
+
+---
+
 ## weights.json 格式示例
 
 ```json
@@ -209,6 +247,7 @@ Desktop-Hachimi/
 
 ## 未来适配计划
 
+- [x] 国际化（中文、英文）
 - [ ] LLM Agent
 - [ ] TTS Agent
 - [ ] Linux (GTK tray)

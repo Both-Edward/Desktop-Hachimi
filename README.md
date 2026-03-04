@@ -93,6 +93,10 @@ When enabled, the pet chases your cursor around the screen. As the cursor approa
 - **State Weights** — adjust how often each state appears via the weight editor
 - **Motion Flip** — configure per-move-variant whether the sprite flips horizontally
 
+### 🌐 Language
+
+Switch between **Chinese (中文)** and **English** at any time via the right-click menu → **Language** submenu. The selected language is saved to `config.json` and restored on next launch. Language files live in the `Language/` folder (`zh.json` / `en.json`).
+
 ### 🖥️ Display
 
 - **Always on Top** — keep the pet above all other windows
@@ -118,6 +122,7 @@ Right-clicking the **pet sprite** opens the full control menu. The system tray i
 | Pet Size | x0.1 ~ x2.0, step 0.1 |
 | Opacity | 10% ~ 100%, step 10% |
 | Speed | Levels 1 ~ 10 |
+| Language | Switch between 中文 and English |
 | Mouse Follow | Pet follows the cursor when enabled |
 | Always on Top | Pet stays above all other windows |
 | Launch on Startup | Register/remove Windows autostart entry |
@@ -138,12 +143,16 @@ Desktop-Hachimi/
 ├── requirements.txt
 ├── config.json              <- Auto-generated user settings
 ├── core/                    <- Backend: config, GIF loader, pet data
+│   └── i18n.py              <- Language loader (reads Language/*.json)
 ├── ui/                      <- Frontend: all tkinter UI components
 │   ├── theme.py             <- ★ Centralized UI color palette & styles
 │   ├── music_player.py      <- Music player dialog
 │   └── helpers.py           <- Shared UI utilities
 ├── compat/                  <- Platform helpers (autostart, DPI, trash)
 ├── ico/                     <- UI and window icons
+├── Language/                <- Language packs
+│   ├── zh.json              <- Chinese strings
+│   └── en.json              <- English strings
 ├── Music/                   <- Music folder (add your tracks here)
 └── Pets/
     └── Ameath/              <- Default pet folder
@@ -178,6 +187,35 @@ Key constants in `ui/theme.py`:
 
 ---
 
+## config.json Fields
+
+```json
+{
+  "pet":           "Ameath",
+  "scale":         1.0,
+  "opacity":       1.0,
+  "speed":         3,
+  "mouse_follow":  false,
+  "always_on_top": true,
+  "x":             100,
+  "y":             100,
+  "language":      "zh"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `pet` | Name of the active pet (must match a folder in `Pets/`) |
+| `scale` | Sprite scale multiplier (0.1 – 2.0) |
+| `opacity` | Window opacity (0.1 – 1.0) |
+| `speed` | Movement speed (1 – 10) |
+| `mouse_follow` | Whether the pet follows the cursor |
+| `always_on_top` | Whether the window stays above all others |
+| `x` / `y` | Last saved window position |
+| `language` | UI language code — `"zh"` or `"en"` |
+
+---
+
 ## weights.json Format
 
 ```json
@@ -209,6 +247,7 @@ When `default_dir` is `"left"`: moving left does not flip the sprite; moving rig
 
 ## Future Plans
 
+- [x] Internationalization (Chinese, English)
 - [ ] LLM Agent
 - [ ] TTS Agent
 - [ ] Linux (GTK tray)
