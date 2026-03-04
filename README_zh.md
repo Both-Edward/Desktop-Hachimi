@@ -247,7 +247,7 @@ Desktop-Hachimi/
 
 ## 未来适配计划
 
-- [x] 国际化（中文、英文）
+- [x] 国际化（简体中文、繁体中文、美式英语、日语）
 - [ ] LLM Agent
 - [ ] TTS Agent
 - [ ] Linux (GTK tray)

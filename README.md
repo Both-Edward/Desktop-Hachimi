@@ -247,7 +247,7 @@ When `default_dir` is `"left"`: moving left does not flip the sprite; moving rig
 
 ## Future Plans
 
-- [x] Internationalization (Chinese, English)
+- [x] Internationalization (Simplified Chinese, Traditional Chinese, American English, Japanese)
 - [ ] LLM Agent
 - [ ] TTS Agent
 - [ ] Linux (GTK tray)
