@@ -1,11 +1,11 @@
 """
-Desktop Hachimi – main entry point v1.2.0
+Desktop Hachimi – main entry point v1.2.1
 Refactored: frontend/backend separation for Windows / Linux (KDE) / macOS support.
   core/            – pure logic (config, gif loading, pet data)
   compat/          – OS-specific helpers (autostart, DPI awareness, trash)
   ui/              – all tkinter UI (pet window, dialogs, music player)
   ui/theme.py      – centralized UI color palette & style constants
-  Language/        – zh.json / en.json language strings
+  Language/        – zh_CN.json / zh_TW.json / en_US.json / ja_JP.json language strings
 """
 
 import sys
@@ -1255,5 +1255,5 @@ class TrayApp:
 
 if __name__ == "__main__":
     cfg = load_config()
-    i18n_init(cfg.get("language", "zh"))
+    i18n_init(cfg.get("language", "zh_CN"))
     TrayApp().run()

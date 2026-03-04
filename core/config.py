@@ -6,7 +6,7 @@ import os
 import json
 
 # ── App Info ──────────────────────────────────────────────────────────────────
-VERSION      = "1.2.0"
+VERSION      = "1.2.1"
 APP_NAME     = "Desktop Hachimi"
 AUTHOR       = "Edward"
 AUTHOR_EMAIL = "lingzhanye4@gmail.com"
@@ -32,7 +32,7 @@ DEFAULT_CFG = {
     "always_on_top": True,
     "x":             100,
     "y":             100,
-    "language":      "zh",
+    "language":      "zh_CN",
 }
 
 # ── Global font tokens (used by UI layer) ─────────────────────────────────────
