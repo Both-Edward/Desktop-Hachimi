@@ -95,7 +95,7 @@ python main.py
 
 ### 🌐 语言切换
 
-通过右键菜单 → **切换语言** 子菜单，随时在**中文**和 **English** 之间切换。所选语言会保存至 `config.json`，下次启动自动恢复。语言文件存放于 `Language/` 文件夹（`zh.json` / `en.json`）。
+通过右键菜单 → **切换语言** 子菜单，随时在**中文**和 **English** 之间切换。所选语言会保存至 `config.json`，下次启动自动恢复。语言文件存放于 `Language/` 文件夹（`zh_CN.json` / `en.json`）。
 
 ### 🖥️ 显示
 
@@ -151,8 +151,8 @@ Desktop-Hachimi/
 ├── compat/                  <- 平台适配（自启动、DPI、回收站）
 ├── ico/                     <- UI 及窗口图标
 ├── Language/                <- 语言包文件夹
-│   ├── zh.json              <- 中文字符串
-│   └── en.json              <- 英文字符串
+│   ├── zh_CN.json              <- 中文字符串
+│   └── en_US.json              <- 英文字符串
 ├── Music/                   <- 音乐文件夹（在此添加曲目）
 └── Pets/
     └── Ameath/              <- 默认桌宠文件夹
@@ -199,7 +199,7 @@ Desktop-Hachimi/
   "always_on_top": true,
   "x":             100,
   "y":             100,
-  "language":      "zh"
+  "language":      "zh_CN"
 }
 ```
 
@@ -212,7 +212,7 @@ Desktop-Hachimi/
 | `mouse_follow` | 是否开启鼠标跟随 |
 | `always_on_top` | 是否始终置顶 |
 | `x` / `y` | 上次保存的窗口位置 |
-| `language` | 界面语言代码 —— `"zh"` 或 `"en"` |
+| `language` | 界面语言代码 |
 
 ---
 
