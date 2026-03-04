@@ -1,0 +1,62 @@
+"""
+core/i18n.py – Internationalization helper.
+
+Language files live in ./Language/<code>.json
+Supported codes: zh (Chinese), en (English)
+The active language is stored in config.json as "language".
+"""
+
+import os
+import json
+
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LANG_DIR  = os.path.join(_BASE_DIR, "Language")
+
+# Built-in fallback so the app works even if Language/ folder is missing
+_FALLBACK: dict = {}
+
+_strings: dict = {}
+_current_lang: str = "zh"
+
+AVAILABLE_LANGS = {
+    "zh": "中文",
+    "en": "English",
+}
+
+
+def _load(lang_code: str) -> dict:
+    path = os.path.join(LANG_DIR, f"{lang_code}.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def init(lang_code: str = "zh") -> None:
+    """Load language strings. Call once at startup."""
+    global _strings, _current_lang
+    _current_lang = lang_code
+    _strings = _load(lang_code)
+    # Ensure English fallback is available for missing keys
+    if lang_code != "zh":
+        fallback = _load("zh")
+        for k, v in fallback.items():
+            _strings.setdefault(k, v)
+
+
+def get(key: str, **kwargs) -> str:
+    """Return translated string, optionally formatted with kwargs."""
+    text = _strings.get(key, key)
+    if kwargs:
+        try:
+            text = text.format(**kwargs)
+        except Exception:
+            pass
+    return text
+
+
+def current() -> str:
+    return _current_lang

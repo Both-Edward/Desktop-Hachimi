@@ -6,7 +6,7 @@ import os
 import json
 
 # ── App Info ──────────────────────────────────────────────────────────────────
-VERSION      = "1.1.3"
+VERSION      = "1.2.0"
 APP_NAME     = "Desktop Hachimi"
 AUTHOR       = "Edward"
 AUTHOR_EMAIL = "lingzhanye4@gmail.com"
@@ -18,6 +18,7 @@ BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PETS_DIR   = os.path.join(BASE_DIR, "Pets")
 ICO_DIR    = os.path.join(BASE_DIR, "ico")
 MUSIC_DIR  = os.path.join(BASE_DIR, "Music")
+LANG_DIR   = os.path.join(BASE_DIR, "Language")
 APP_ICO    = os.path.join(ICO_DIR, "Desktop Hachimi ico.ico")
 CONFIG_F   = os.path.join(BASE_DIR, "config.json")
 
@@ -31,6 +32,7 @@ DEFAULT_CFG = {
     "always_on_top": True,
     "x":             100,
     "y":             100,
+    "language":      "zh",
 }
 
 # ── Global font tokens (used by UI layer) ─────────────────────────────────────

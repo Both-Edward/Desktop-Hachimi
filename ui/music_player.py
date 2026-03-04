@@ -15,6 +15,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 from core.config import MUSIC_DIR
+from core.i18n import get as _t
 from ui.helpers import set_window_icon, load_ico_image
 from compat.trash import move_to_trash
 import ui.theme as T
@@ -219,7 +220,7 @@ class MusicPlayer:
     @property
     def current_title(self) -> str:
         if not self.playlist:
-            return "（无音乐）"
+            return _t("music_no_music")
         return os.path.splitext(os.path.basename(self.playlist[self.current_idx]))[0]
 
 
@@ -285,7 +286,7 @@ class MusicPlayerDialog:
             self._monitor = _BackgroundMonitor(self.player, self._root)
 
         self.win = tk.Toplevel(parent)
-        self.win.title("音乐播放器")
+        self.win.title(_t("music_title"))
         self.win.configure(bg=T.BG)
         self.win.resizable(False, False)
         set_window_icon(self.win)
@@ -312,7 +313,7 @@ class MusicPlayerDialog:
         # Header
         header = tk.Frame(win, bg=T.HEADER_BG)
         header.pack(fill="x")
-        tk.Label(header, text="🎵  Desktop Hachimi 音乐播放器",
+        tk.Label(header, text=_t("music_header"),
                  bg=T.HEADER_BG, fg=T.WHITE,
                  font=T.FONT_LARGE, padx=16, pady=10).pack(side="left")
 
@@ -396,7 +397,7 @@ class MusicPlayerDialog:
         # Close button at bottom
         bf = tk.Frame(win, bg=T.BG)
         bf.pack(pady=10)
-        tk.Button(bf, text="关闭", command=self._on_close, **T.BTN_CLOSE).pack()
+        tk.Button(bf, text=_t("music_close"), command=self._on_close, **T.BTN_CLOSE).pack()
 
         self._refresh_controls()
 
@@ -477,23 +478,23 @@ class MusicPlayerDialog:
 
     def _on_add(self):
         files = filedialog.askopenfilenames(
-            parent=self.win, title="添加音乐",
-            filetypes=[("音频文件", "*.mp3 *.wav *.ogg *.flac *.aac *.m4a *.wma"), ("全部文件", "*.*")]
+            parent=self.win, title=_t("music_add_title"),
+            filetypes=[(_t("music_add_filetypes"), "*.mp3 *.wav *.ogg *.flac *.aac *.m4a *.wma"), ("*", "*.*")]
         )
         added = sum(self.player.add_file(f) for f in files)
         if added:
             self._refresh_list()
-            messagebox.showinfo("添加音乐", f"已添加 {added} 首音乐。", parent=self.win)
+            messagebox.showinfo(_t("music_add_ok"), _t("music_add_ok_msg", n=added), parent=self.win)
 
     def _on_delete(self):
         if not self.player.playlist: return
         title = self.player.current_title
-        if not messagebox.askyesno("删除音乐", f"将「{title}」移至回收站？", parent=self.win): return
+        if not messagebox.askyesno(_t("music_del_title"), _t("music_del_confirm", title=title), parent=self.win): return
         ok = self.player.delete_current()
         if ok:
             self._refresh_list()
         else:
-            messagebox.showerror("删除失败", "无法移至回收站，请手动删除。", parent=self.win)
+            messagebox.showerror(_t("music_del_fail"), _t("music_del_fail_msg"), parent=self.win)
 
     def _refresh_list(self):
         self.player._reload_playlist()
@@ -516,7 +517,7 @@ class MusicPlayerDialog:
               MusicPlayer.MODE_LOOP_NONE: "▶ 1"}
         _set_img_or_text(self._mode_btn, self._ico(m[p.mode]), mt[p.mode], fg=T.PINK)
 
-        self._title_var.set(p.current_title if p.playlist else "（无音乐）")
+        self._title_var.set(p.current_title if p.playlist else _t("music_no_music"))
         total = len(p.playlist); cur = (p.current_idx + 1) if total else 0
         self._idx_var.set(f"{cur} / {total}")
 

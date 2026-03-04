@@ -1,10 +1,11 @@
 """
-Desktop Hachimi – main entry point v1.1.3
+Desktop Hachimi – main entry point v1.2.0
 Refactored: frontend/backend separation for Windows / Linux (KDE) / macOS support.
   core/            – pure logic (config, gif loading, pet data)
   compat/          – OS-specific helpers (autostart, DPI awareness, trash)
   ui/              – all tkinter UI (pet window, dialogs, music player)
   ui/theme.py      – centralized UI color palette & style constants
+  Language/        – zh.json / en.json language strings
 """
 
 import sys
@@ -30,6 +31,7 @@ from core.config import (
     load_config, save_config, get_available_pets,
 )
 from core.pet_data import PetData
+from core.i18n import init as i18n_init, get as _t, current as lang_current, AVAILABLE_LANGS
 from compat.autostart import get_autostart, set_autostart
 from compat.dpi import enable_dpi_awareness, get_monitors
 from compat.trash import move_to_trash
@@ -584,32 +586,40 @@ class PetWindow:
 
         def build_speed_sub(sf, sub, csf):
             _build_simple_sub(
-                lambda: [(f"速度 {s}", cfg["speed"] == s, lambda val=s: self.set_speed(val))
+                lambda: [(_t("menu_speed_item", s=s), cfg["speed"] == s, lambda val=s: self.set_speed(val))
                          for s in range(1,11)],
                 sf, sub, csf)
 
-        make_submenu_item(frame, "切换桌宠", build_pet_sub)
-        make_submenu_item(frame, "删除桌宠", build_del_sub)
-        make_submenu_item(frame, "桌宠大小", build_scale_sub)
-        make_submenu_item(frame, "透明度",   build_opacity_sub)
-        make_submenu_item(frame, "速度",     build_speed_sub)
+        def build_lang_sub(sf, sub, csf):
+            _build_simple_sub(
+                lambda: [(label, lang_current() == code,
+                          lambda c=code: self.set_language(c))
+                         for code, label in AVAILABLE_LANGS.items()],
+                sf, sub, csf)
+
+        make_submenu_item(frame, _t("menu_switch_pet"), build_pet_sub)
+        make_submenu_item(frame, _t("menu_delete_pet"), build_del_sub)
+        make_submenu_item(frame, _t("menu_pet_size"),   build_scale_sub)
+        make_submenu_item(frame, _t("menu_opacity"),    build_opacity_sub)
+        make_submenu_item(frame, _t("menu_speed"),      build_speed_sub)
+        make_submenu_item(frame, _t("menu_language"),   build_lang_sub)
 
         make_item(frame, "", is_sep=True)
 
-        make_item(frame, "鼠标跟随", checked=cfg.get("mouse_follow", False),
+        make_item(frame, _t("menu_mouse_follow"), checked=cfg.get("mouse_follow", False),
                   command=lambda: self.set_mouse_follow(not self.cfg.get("mouse_follow", False)))
-        make_item(frame, "最上层显示", checked=cfg.get("always_on_top", True),
+        make_item(frame, _t("menu_always_on_top"), checked=cfg.get("always_on_top", True),
                   command=lambda: self.set_always_on_top(not self.cfg.get("always_on_top", True)))
-        make_item(frame, "开机自启动", checked=get_autostart(),
+        make_item(frame, _t("menu_autostart"), checked=get_autostart(),
                   command=self.app._toggle_autostart)
 
         make_item(frame, "", is_sep=True)
 
-        make_item(frame, "音乐播放器",      command=self._open_music_player)
-        make_item(frame, "调整状态权重",    command=lambda: WeightEditorDialog(self.root, self))
-        make_item(frame, "调整运动方向反转", command=lambda: FlipEditorDialog(self.root, self))
-        make_item(frame, "创建桌宠",        command=lambda: PetCreatorDialog(self.root))
-        make_item(frame, "关于",            command=lambda: AboutDialog(self.root))
+        make_item(frame, _t("menu_music_player"),    command=self._open_music_player)
+        make_item(frame, _t("menu_weight_editor"),   command=lambda: WeightEditorDialog(self.root, self))
+        make_item(frame, _t("menu_flip_editor"),     command=lambda: FlipEditorDialog(self.root, self))
+        make_item(frame, _t("menu_create_pet"),      command=lambda: PetCreatorDialog(self.root))
+        make_item(frame, _t("menu_about"),           command=lambda: AboutDialog(self.root))
 
         make_item(frame, "", is_sep=True)
 
@@ -617,7 +627,7 @@ class PetWindow:
         quit_row.pack(fill="x", padx=0, pady=(0,2))
         ck_q = tk.Label(quit_row, text="  ", bg=T.BG, width=2, font=("Microsoft YaHei UI", 9))
         ck_q.pack(side="left", padx=(6,0))
-        lbl_q = tk.Label(quit_row, text="退出", bg=T.BG, fg=T.PINK,
+        lbl_q = tk.Label(quit_row, text=_t("menu_quit"), bg=T.BG, fg=T.PINK,
                          font=("Microsoft YaHei UI", 10, "bold"), anchor="w", padx=4, pady=4)
         lbl_q.pack(side="left", fill="x", expand=True)
         def _on_eq(e): quit_row.config(bg=T.HOVER_BG); ck_q.config(bg=T.HOVER_BG); lbl_q.config(bg=T.HOVER_BG)
@@ -683,10 +693,10 @@ class PetWindow:
     def _delete_pet(self, name: str):
         pets = get_available_pets()
         if len(pets) <= 1:
-            messagebox.showwarning("无法删除", "至少需要保留一个桌宠，无法删除。", parent=self.root)
+            messagebox.showwarning(_t("delete_pet_cannot"), _t("delete_pet_cannot_msg"), parent=self.root)
             return
-        if not messagebox.askyesno("删除桌宠",
-                                   f"确定将桌宠「{name}」移至回收站？\n（可从回收站中恢复）",
+        if not messagebox.askyesno(_t("delete_pet_confirm_title"),
+                                   _t("delete_pet_confirm_msg", name=name),
                                    parent=self.root):
             return
         ok = move_to_trash(os.path.join(PETS_DIR, name))
@@ -694,9 +704,9 @@ class PetWindow:
             if self.cfg.get("pet") == name:
                 remaining = [p for p in get_available_pets() if p != name]
                 if remaining: self.set_pet(remaining[0])
-            messagebox.showinfo("删除成功", f"桌宠「{name}」已移至回收站。", parent=self.root)
+            messagebox.showinfo(_t("delete_pet_success"), _t("delete_pet_success_msg", name=name), parent=self.root)
         else:
-            messagebox.showerror("删除失败", "无法移至回收站，请手动删除。", parent=self.root)
+            messagebox.showerror(_t("delete_pet_fail"), _t("delete_pet_fail_msg"), parent=self.root)
 
     def set_pet(self, name):
         self.cfg["pet"] = name; save_config(self.cfg); self.reload_pet()
@@ -723,6 +733,11 @@ class PetWindow:
     def set_always_on_top(self, val):
         self.cfg["always_on_top"] = val; save_config(self.cfg)
         self.root.attributes("-topmost", val)
+
+    def set_language(self, lang_code: str):
+        self.cfg["language"] = lang_code; save_config(self.cfg)
+        from core.i18n import init as i18n_init
+        i18n_init(lang_code)
 
     def save_position(self):
         self.cfg["x"] = int(self.x); self.cfg["y"] = int(self.y); save_config(self.cfg)
@@ -751,7 +766,9 @@ def _make_dialog_header(win, icon_text, title, subtitle=None):
 
 
 def _make_dialog_buttons(parent, save_cmd=None, cancel_cmd=None,
-                          save_label="保存并应用", cancel_label="关闭"):
+                          save_label=None, cancel_label=None):
+    if save_label is None:   save_label   = _t("btn_save")
+    if cancel_label is None: cancel_label = _t("btn_close")
     bf = tk.Frame(parent, bg=T.BG)
     bf.pack(pady=14)
     if save_cmd:
@@ -788,26 +805,27 @@ class WeightEditorDialog:
     def __init__(self, parent_root, pet_win: PetWindow):
         self.pet_win = pet_win
         self.win = tk.Toplevel(parent_root)
-        self.win.title("调整状态权重")
+        self.win.title(_t("weight_editor_title"))
         self.win.configure(bg=T.BG)
         set_window_icon(self.win)
         self.win.resizable(False, False)
         self._build_ui()
 
+
     def _build_ui(self):
         win = self.win; pd = self.pet_win.pet_data
         pad = {"padx": 10, "pady": 5}
 
-        _make_dialog_header(win, "⚖️", "调整状态权重", f"桌宠：{pd.name}")
+        _make_dialog_header(win, "⚖️", _t("weight_editor_title"), _t("weight_editor_subtitle", name=pd.name))
 
         card = _styled_card(win)
         card.pack(fill="x", padx=16, pady=(12, 4))
-        _card_label(card, "说明：权重为正整数，值越大该状态出现概率越高。",
+        _card_label(card, _t("weight_editor_hint"),
                     fg=T.TEXT_LIGHT, font=T.FONT_SMALL).grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
         row = 1
-        _card_label(card, "动感状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+        _card_label(card, _t("weight_dynamic"), anchor="e").grid(row=row, column=0, sticky="e", **pad)
         self._dyn_var = tk.IntVar(value=pd.dynamic_weight)
         _spinbox(card, self._dyn_var).grid(row=row, column=1, sticky="w", **pad)
         row += 1
@@ -816,16 +834,16 @@ class WeightEditorDialog:
         self._idle_vars = []
         idle_count = len(pd.idle_variants)
         if idle_count == 0:
-            _card_label(card, "非移动状态：（无图）", fg=T.TEXT_LIGHT).grid(row=row, column=0, columnspan=3, **pad); row += 1
+            _card_label(card, _t("weight_idle_no"), fg=T.TEXT_LIGHT).grid(row=row, column=0, columnspan=3, **pad); row += 1
         elif idle_count == 1:
-            _card_label(card, "非移动状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+            _card_label(card, _t("weight_idle"), anchor="e").grid(row=row, column=0, sticky="e", **pad)
             v = tk.IntVar(value=pd.idle_weights[0] if pd.idle_weights else 2)
             _spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
             self._idle_vars.append(v); row += 1
         else:
-            _card_label(card, "非移动状态（多图）：", font=T.FONT_BOLD).grid(row=row, column=0, columnspan=3, sticky="w", padx=10); row += 1
+            _card_label(card, _t("weight_idle_multi"), font=T.FONT_BOLD).grid(row=row, column=0, columnspan=3, sticky="w", padx=10); row += 1
             for i in range(idle_count):
-                _card_label(card, f"  idle{i+1} 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+                _card_label(card, _t("weight_idle_n", n=i+1), anchor="e").grid(row=row, column=0, sticky="e", **pad)
                 v = tk.IntVar(value=pd.idle_weights[i] if i < len(pd.idle_weights) else 2)
                 _spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
                 self._idle_vars.append(v); row += 1
@@ -835,16 +853,16 @@ class WeightEditorDialog:
         self._move_vars = []
         move_count = len(pd.move_variants)
         if move_count == 0:
-            _card_label(card, "移动状态：（无图）", fg=T.TEXT_LIGHT).grid(row=row, column=0, columnspan=3, **pad); row += 1
+            _card_label(card, _t("weight_move_no"), fg=T.TEXT_LIGHT).grid(row=row, column=0, columnspan=3, **pad); row += 1
         elif move_count == 1:
-            _card_label(card, "移动状态 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+            _card_label(card, _t("weight_move"), anchor="e").grid(row=row, column=0, sticky="e", **pad)
             v = tk.IntVar(value=pd.move_weights[0] if pd.move_weights else 1)
             _spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
             self._move_vars.append(v); row += 1
         else:
-            _card_label(card, "移动状态（多图）：", font=T.FONT_BOLD).grid(row=row, column=0, columnspan=3, sticky="w", padx=10); row += 1
+            _card_label(card, _t("weight_move_multi"), font=T.FONT_BOLD).grid(row=row, column=0, columnspan=3, sticky="w", padx=10); row += 1
             for i in range(move_count):
-                _card_label(card, f"  move{i+1} 权重：", anchor="e").grid(row=row, column=0, sticky="e", **pad)
+                _card_label(card, _t("weight_move_n", n=i+1), anchor="e").grid(row=row, column=0, sticky="e", **pad)
                 v = tk.IntVar(value=pd.move_weights[i] if i < len(pd.move_weights) else 1)
                 _spinbox(card, v).grid(row=row, column=1, sticky="w", **pad)
                 self._move_vars.append(v); row += 1
@@ -867,8 +885,10 @@ class WeightEditorDialog:
         mw = sum(self._safe_int(v) for v in self._move_vars) if self._move_vars else 0
         total = dw + iw + mw
         if total == 0: self._preview_label.config(text=""); return
-        self._preview_label.config(text="  概率预览：" + "  |  ".join([
-            f"动感 {dw/total*100:.1f}%", f"非移动 {iw/total*100:.1f}%", f"移动 {mw/total*100:.1f}%"]))
+        self._preview_label.config(text=_t("weight_preview") + "  |  ".join([
+            _t("weight_preview_dynamic", p=dw/total*100),
+            _t("weight_preview_idle",    p=iw/total*100),
+            _t("weight_preview_move",    p=mw/total*100)]))
 
     def _save(self):
         pd = self.pet_win.pet_data; path = os.path.join(pd.dir, "weights.json")
@@ -882,7 +902,7 @@ class WeightEditorDialog:
         if self._move_vars: existing["move_weight"] = [self._safe_int(v) for v in self._move_vars]
         with open(path, "w", encoding="utf-8") as f: json.dump(existing, f, ensure_ascii=False, indent=2)
         self.pet_win.reload_pet()
-        messagebox.showinfo("✅ 成功", "权重已保存并应用！", parent=self.win)
+        messagebox.showinfo(_t("weight_save_ok"), _t("weight_save_ok_msg"), parent=self.win)
         self.win.destroy()
 
 
@@ -890,7 +910,7 @@ class FlipEditorDialog:
     def __init__(self, parent_root, pet_win: PetWindow):
         self.pet_win = pet_win
         self.win = tk.Toplevel(parent_root)
-        self.win.title("调整运动方向反转")
+        self.win.title(_t("flip_editor_title"))
         self.win.configure(bg=T.BG)
         set_window_icon(self.win)
         self.win.resizable(False, False)
@@ -903,25 +923,25 @@ class FlipEditorDialog:
 
     def _build_ui(self):
         win = self.win; pd = self.pet_win.pet_data
-        _make_dialog_header(win, "↔️", "调整运动方向反转", f"桌宠：{pd.name}")
+        _make_dialog_header(win, "↔️", _t("flip_editor_title"), _t("flip_editor_subtitle", name=pd.name))
 
         info = tk.Frame(win, bg=T.CARD_BG, padx=14, pady=8)
         info.pack(fill="x", padx=16, pady=(10, 4))
         tk.Label(info,
-            text='说明：启用后，桌宠向"非默认方向"运动时图片会水平翻转。\n  默认方向=左 → 向左走不翻转，向右走翻转\n  默认方向=右 → 向右走不翻转，向左走翻转',
+            text=_t("flip_editor_hint"),
             bg=T.CARD_BG, fg=T.TEXT_LIGHT, justify="left", font=T.FONT_SMALL).pack(anchor="w")
 
         mc = len(pd.move_variants)
         if mc == 0:
-            _styled_label(win, "当前桌宠没有移动状态图，无法配置。", fg=T.TEXT_LIGHT).pack(padx=16, pady=8)
-            _make_dialog_buttons(win, cancel_cmd=self.win.destroy, cancel_label="关闭")
+            _styled_label(win, _t("flip_no_move"), fg=T.TEXT_LIGHT).pack(padx=16, pady=8)
+            _make_dialog_buttons(win, cancel_cmd=self.win.destroy, cancel_label=_t("flip_close"))
             return
 
         card = _styled_card(win)
         card.pack(fill="x", padx=16, pady=4)
         pad = {"padx": 8, "pady": 5}
 
-        for lbl, col in [("图片", 0), ("启用反转", 1), ("默认朝向", 2), ("当前效果预览", 3)]:
+        for lbl, col in [(_t("flip_col_image"), 0), (_t("flip_col_enable"), 1), (_t("flip_col_dir"), 2), (_t("flip_col_preview"), 3)]:
             tk.Label(card, text=lbl, bg=T.CARD_BG, fg=T.PINK,
                      font=T.FONT_BOLD, width=(10 if col == 0 else None)).grid(row=0, column=col, **pad)
         tk.Frame(card, bg=T.SEP, height=1).grid(row=1, column=0, columnspan=4, sticky="ew", padx=4, pady=2)
@@ -952,9 +972,9 @@ class FlipEditorDialog:
 
     def _refresh_preview(self, idx):
         row = self._rows[idx]; en = row["enabled_var"].get(); d = row["dir_var"].get()
-        if not en:        text = "⬜ 未启用（始终不翻转）"
-        elif d == "left": text = "← 左走正常  |  → 右走翻转"
-        else:             text = "→ 右走正常  |  ← 左走翻转"
+        if not en:        text = _t("flip_disabled")
+        elif d == "left": text = _t("flip_left")
+        else:             text = _t("flip_right")
         row["preview_lbl"].config(text=text)
 
     def _save(self):
@@ -969,14 +989,14 @@ class FlipEditorDialog:
             existing[row["key"]] = {"enabled": row["enabled_var"].get(), "default_dir": row["dir_var"].get()}
         with open(path, "w", encoding="utf-8") as f: json.dump(existing, f, ensure_ascii=False, indent=2)
         self.pet_win.reload_pet()
-        messagebox.showinfo("✅ 成功", "运动方向反转设置已保存并应用！", parent=self.win)
+        messagebox.showinfo(_t("flip_save_ok"), _t("flip_save_ok_msg"), parent=self.win)
         self.win.destroy()
 
 
 class PetCreatorDialog:
     def __init__(self, parent_root):
         self.win = tk.Toplevel(parent_root)
-        self.win.title("创建桌宠")
+        self.win.title(_t("creator_title"))
         set_window_icon(self.win)
         self.win.configure(bg=T.BG)
         self.win.resizable(False, False)
@@ -989,37 +1009,37 @@ class PetCreatorDialog:
 
     def _build_ui(self):
         win = self.win; pad = {"padx": 8, "pady": 4}
-        _make_dialog_header(win, "🎨", "创建桌宠")
+        _make_dialog_header(win, "🎨", _t("creator_title"))
 
         card = _styled_card(win)
         card.pack(fill="x", padx=16, pady=(10, 4))
-        _card_label(card, "桌宠名:").grid(row=0, column=0, sticky="e", **pad)
+        _card_label(card, _t("creator_name")).grid(row=0, column=0, sticky="e", **pad)
         self.name_var = tk.StringVar()
         self._entry(card, self.name_var).grid(row=0, column=1, columnspan=2, sticky="w", **pad)
 
-        for row, key, label in [(1, "icon", "桌宠图标(.ico):"), (2, "dynamic", "动感状态(.gif):"), (3, "drag", "拖拽状态(.gif):")]:
+        for row, key, label in [(1, "icon", _t("creator_icon")), (2, "dynamic", _t("creator_dynamic")), (3, "drag", _t("creator_drag"))]:
             ext = "*.ico" if key == "icon" else "*.gif"
             _card_label(card, label).grid(row=row, column=0, sticky="e", **pad)
             self._entry(card, self._files[key]).grid(row=row, column=1, **pad)
-            tk.Button(card, text="浏览",
+            tk.Button(card, text=_t("creator_browse"),
                       command=lambda k=key, e=ext: self._browse(k, [(k.upper(), e)]),
                       **T.BTN_NORMAL).grid(row=row, column=2, **pad)
 
-        _card_label(card, "动感权重:").grid(row=2, column=3, **pad)
+        _card_label(card, _t("creator_dynamic_weight")).grid(row=2, column=3, **pad)
         self.dyn_weight = tk.IntVar(value=3)
         _spinbox(card, self.dyn_weight, width=4).grid(row=2, column=4, **pad)
 
-        tk.Label(win, text="── 非移动状态(idle) ──", bg=T.BG, fg=T.TEXT_LIGHT, font=T.FONT_SMALL).pack(pady=(8, 2))
+        tk.Label(win, text=_t("creator_idle_section"), bg=T.BG, fg=T.TEXT_LIGHT, font=T.FONT_SMALL).pack(pady=(8, 2))
         self._idle_frame = tk.Frame(win, bg=T.CARD_BG); self._idle_frame.pack(fill="x", padx=16)
         self._add_idle_row()
-        tk.Button(win, text="+ 添加idle图", command=self._add_idle_row, **T.BTN_NORMAL).pack(pady=4)
+        tk.Button(win, text=_t("creator_add_idle"), command=self._add_idle_row, **T.BTN_NORMAL).pack(pady=4)
 
-        tk.Label(win, text="── 移动状态(move) ──", bg=T.BG, fg=T.TEXT_LIGHT, font=T.FONT_SMALL).pack(pady=(6, 2))
+        tk.Label(win, text=_t("creator_move_section"), bg=T.BG, fg=T.TEXT_LIGHT, font=T.FONT_SMALL).pack(pady=(6, 2))
         self._move_frame = tk.Frame(win, bg=T.CARD_BG); self._move_frame.pack(fill="x", padx=16)
         self._add_move_row()
-        tk.Button(win, text="+ 添加move图", command=self._add_move_row, **T.BTN_NORMAL).pack(pady=4)
+        tk.Button(win, text=_t("creator_add_move"), command=self._add_move_row, **T.BTN_NORMAL).pack(pady=4)
 
-        _make_dialog_buttons(win, save_cmd=self._save, cancel_cmd=self.win.destroy, save_label="保存")
+        _make_dialog_buttons(win, save_cmd=self._save, cancel_cmd=self.win.destroy, save_label=_t("creator_save"))
 
     def _browse(self, key, filetypes):
         p = filedialog.askopenfilename(filetypes=filetypes)
@@ -1034,9 +1054,9 @@ class PetCreatorDialog:
         pv = tk.StringVar(); wv = tk.IntVar(value=2)
         tk.Label(f, text=f"idle {row+1}:", bg=T.CARD_BG, fg=T.TEXT).grid(row=row, column=0, padx=6)
         tk.Entry(f, textvariable=pv, width=24, **T.ENTRY_STYLE).grid(row=row, column=1, padx=4, pady=3)
-        tk.Button(f, text="浏览", command=lambda v=pv: self._browse_var(v, [("GIF", "*.gif")]),
+        tk.Button(f, text=_t("creator_browse"), command=lambda v=pv: self._browse_var(v, [("GIF", "*.gif")]),
                   **T.BTN_NORMAL).grid(row=row, column=2, padx=4)
-        tk.Label(f, text="权重:", bg=T.CARD_BG, fg=T.TEXT_LIGHT).grid(row=row, column=3, padx=4)
+        tk.Label(f, text=_t("creator_weight"), bg=T.CARD_BG, fg=T.TEXT_LIGHT).grid(row=row, column=3, padx=4)
         _spinbox(f, wv, width=4).grid(row=row, column=4, padx=4)
         self._idle_entries.append((pv, wv))
 
@@ -1045,11 +1065,11 @@ class PetCreatorDialog:
         pv = tk.StringVar(); wv = tk.IntVar(value=1); fv = tk.BooleanVar(); dv = tk.StringVar(value="left")
         tk.Label(f, text=f"move {row+1}:", bg=T.CARD_BG, fg=T.TEXT).grid(row=row, column=0, padx=6)
         tk.Entry(f, textvariable=pv, width=24, **T.ENTRY_STYLE).grid(row=row, column=1, padx=4, pady=3)
-        tk.Button(f, text="浏览", command=lambda v=pv: self._browse_var(v, [("GIF", "*.gif")]),
+        tk.Button(f, text=_t("creator_browse"), command=lambda v=pv: self._browse_var(v, [("GIF", "*.gif")]),
                   **T.BTN_NORMAL).grid(row=row, column=2, padx=4)
-        tk.Label(f, text="权重:", bg=T.CARD_BG, fg=T.TEXT_LIGHT).grid(row=row, column=3, padx=4)
+        tk.Label(f, text=_t("creator_weight"), bg=T.CARD_BG, fg=T.TEXT_LIGHT).grid(row=row, column=3, padx=4)
         _spinbox(f, wv, width=4).grid(row=row, column=4, padx=4)
-        tk.Checkbutton(f, text="翻转", variable=fv, bg=T.CARD_BG, fg=T.PINK,
+        tk.Checkbutton(f, text=_t("creator_flip"), variable=fv, bg=T.CARD_BG, fg=T.PINK,
                        selectcolor=T.BG, activebackground=T.CARD_BG).grid(row=row, column=5, padx=4)
         ttk.Combobox(f, textvariable=dv, values=["left", "right"], width=5, state="readonly").grid(row=row, column=6, padx=4)
         self._move_entries.append((pv, wv, fv, dv))
@@ -1057,7 +1077,7 @@ class PetCreatorDialog:
     def _save(self):
         name = self.name_var.get().strip()
         if not name:
-            messagebox.showwarning("⚠ 错误", "请输入桌宠名称！", parent=self.win); return
+            messagebox.showwarning(_t("creator_no_name"), _t("creator_no_name_msg"), parent=self.win); return
         pet_dir = os.path.join(PETS_DIR, name); os.makedirs(pet_dir, exist_ok=True)
         def cp(src, dst):
             if src and os.path.exists(src): shutil.copy2(src, dst)
@@ -1084,7 +1104,7 @@ class PetCreatorDialog:
             json.dump({"dynamic_weight": self.dyn_weight.get(), **iw, **mw}, f, indent=2)
         if fi:
             with open(os.path.join(pet_dir, "flip.json"), "w", encoding="utf-8") as f: json.dump(fi, f, indent=2)
-        messagebox.showinfo("✅ 成功", f"桌宠 '{name}' 已保存！", parent=self.win)
+        messagebox.showinfo(_t("creator_ok"), _t("creator_ok_msg", name=name), parent=self.win)
         self.win.destroy()
 
 
@@ -1092,7 +1112,7 @@ class AboutDialog:
     def __init__(self, parent_root):
         self.win = tk.Toplevel(parent_root)
         win = self.win
-        win.title(f"关于 {APP_NAME}")
+        win.title(_t("about_title", app=APP_NAME))
         set_window_icon(win)
         win.configure(bg=T.BG)
         win.resizable(False, False)
@@ -1104,8 +1124,8 @@ class AboutDialog:
 
         card = _styled_card(win)
         card.pack(fill="x", padx=20, pady=(14, 8))
-        _card_label(card, f"版本: {VERSION}").pack(anchor="w", pady=2)
-        _card_label(card, f"作者: {AUTHOR}  ({AUTHOR_EMAIL})", fg=T.TEXT_LIGHT).pack(anchor="w", pady=2)
+        _card_label(card, _t("about_version", version=VERSION)).pack(anchor="w", pady=2)
+        _card_label(card, _t("about_author", author=AUTHOR, email=AUTHOR_EMAIL), fg=T.TEXT_LIGHT).pack(anchor="w", pady=2)
         link = tk.Label(card, text=GITHUB_URL, bg=T.CARD_BG, fg=T.PINK,
                         cursor="hand2", font=T.FONT_SMALL)
         link.pack(anchor="w", pady=2)
@@ -1116,17 +1136,17 @@ class AboutDialog:
                                     fg=T.TEXT_LIGHT, font=T.FONT_SMALL, wraplength=320)
         self._status_lbl.pack(padx=16, pady=(4, 0))
 
-        self._dl_btn = tk.Button(win, text="⬇  前往下载最新版本",
+        self._dl_btn = tk.Button(win, text=_t("about_download"),
                                   bg=T.PINK, fg=T.WHITE, cursor="hand2", relief="flat",
                                   padx=12, font=T.FONT_NORMAL,
                                   activebackground="#c03060", activeforeground=T.WHITE,
                                   command=self._open_releases)
 
         bf = tk.Frame(win, bg=T.BG); bf.pack(pady=10)
-        self._update_btn = tk.Button(bf, text="检查更新",
+        self._update_btn = tk.Button(bf, text=_t("about_check_update"),
                                       command=self._start_check_update, **T.BTN_NORMAL)
         self._update_btn.pack(side="left", padx=6)
-        tk.Button(bf, text="关闭", command=win.destroy, **T.BTN_CLOSE).pack(side="left", padx=6)
+        tk.Button(bf, text=_t("about_close"), command=win.destroy, **T.BTN_CLOSE).pack(side="left", padx=6)
 
     @staticmethod
     def _open_url(url):
@@ -1137,12 +1157,12 @@ class AboutDialog:
 
     def _start_check_update(self):
         self._update_btn.config(state="disabled")
-        self._status_var.set("正在检查更新，请稍候…")
+        self._status_var.set(_t("about_checking"))
         self._status_lbl.config(fg=T.TEXT_LIGHT)
         threading.Thread(target=self._do_check_update, daemon=True).start()
 
     def _do_check_update(self):
-        result = ("error", "未知错误", "", "")
+        result = ("error", "unknown error", "", "")
         try:
             r = fetch_latest_release()
             lt = r.get("tag_name", "").lstrip("v"); lu = r.get("html_url", GITHUB_RELEASES)
@@ -1160,16 +1180,17 @@ class AboutDialog:
         self._update_btn.config(state="normal"); kind = result[0]
         if kind == "new":
             _, lt, lu, lb = result
-            self._status_var.set(f"🎉 发现新版本 v{lt}！（当前 v{VERSION}）\n" + (f"更新内容：{lb[:200]}" if lb else ""))
+            notes = _t("about_new_notes", notes=lb[:200]) if lb else ""
+            self._status_var.set(_t("about_new", latest=lt, current=VERSION, notes=notes))
             self._status_lbl.config(fg=T.PINK); self._dl_btn.pack(pady=(0, 6))
         elif kind == "latest":
-            self._status_var.set(f"✅ 已是最新版本（v{VERSION}）")
+            self._status_var.set(_t("about_latest", version=VERSION))
             self._status_lbl.config(fg=T.GREEN)
         elif kind == "dev":
-            self._status_var.set(f"🛠 当前版本（v{VERSION}）比最新发布版（v{result[1]}）更新，可能是开发版。")
+            self._status_var.set(_t("about_dev", current=VERSION, latest=result[1]))
             self._status_lbl.config(fg=T.PINK)
         else:
-            self._status_var.set(f"❌ 检查失败：{result[1]}\n请检查网络连接或访问 GitHub 手动查看。")
+            self._status_var.set(_t("about_error", error=result[1]))
             self._status_lbl.config(fg="#c03060")
 
 
@@ -1194,8 +1215,9 @@ class TrayApp:
         cur = get_autostart(); ok = set_autostart(not cur)
         if self.pet_win:
             def _notify():
-                if ok: messagebox.showinfo("开机自启动", f"开机自启动{'已开启' if not cur else '已关闭'}。", parent=self.pet_win.root)
-                else:  messagebox.showerror("开机自启动", "修改失败，请检查权限。", parent=self.pet_win.root)
+                state = _t("autostart_on") if not cur else _t("autostart_off")
+                if ok: messagebox.showinfo(_t("autostart_title"), _t("autostart_msg", state=state), parent=self.pet_win.root)
+                else:  messagebox.showerror(_t("autostart_title"), _t("autostart_err"), parent=self.pet_win.root)
             self.pet_win.root.after(0, _notify)
 
     def _do_quit(self):
@@ -1221,7 +1243,7 @@ class TrayApp:
         # Minimal tray menu: only "Exit" remains.
         # All other controls are on the pet's own right-click context menu.
         minimal_menu = Menu(
-            item("退出 Desktop Hachimi",
+            item(_t("tray_quit"),
                  lambda icon, mi: self.pet_win.root.after(0, self._do_quit))
         )
         self.tray = pystray.Icon(APP_NAME, tray_img, APP_NAME, menu=minimal_menu)
@@ -1232,4 +1254,6 @@ class TrayApp:
 
 
 if __name__ == "__main__":
+    cfg = load_config()
+    i18n_init(cfg.get("language", "zh"))
     TrayApp().run()
