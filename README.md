@@ -199,7 +199,7 @@ Key constants in `ui/theme.py`:
   "always_on_top": true,
   "x":             100,
   "y":             100,
-  "language":      "zh"
+  "language":      "zh_CN"
 }
 ```
 
@@ -212,7 +212,7 @@ Key constants in `ui/theme.py`:
 | `mouse_follow` | Whether the pet follows the cursor |
 | `always_on_top` | Whether the window stays above all others |
 | `x` / `y` | Last saved window position |
-| `language` | UI language code — `"zh"` or `"en"` |
+| `language` | UI language code |
 
 ---
 
