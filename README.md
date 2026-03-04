@@ -95,7 +95,7 @@ When enabled, the pet chases your cursor around the screen. As the cursor approa
 
 ### 🌐 Language
 
-Switch between **Chinese (中文)** and **English** at any time via the right-click menu → **Language** submenu. The selected language is saved to `config.json` and restored on next launch. Language files live in the `Language/` folder (`zh.json` / `en.json`).
+Switch between **Simplified Chinese (简体中文)**, **Traditional Chinese (繁體中文)**, **English**, and **Japanese (日本語)** at any time via the right-click menu → **Language** submenu. The selected language is saved to `config.json` and restored on next launch. Language files live in the `Language/` folder (`zh_CN.json` / `zh_TW.json` / `en_US.json` / `ja_JP.json`).
 
 ### 🖥️ Display
 
@@ -122,7 +122,7 @@ Right-clicking the **pet sprite** opens the full control menu. The system tray i
 | Pet Size | x0.1 ~ x2.0, step 0.1 |
 | Opacity | 10% ~ 100%, step 10% |
 | Speed | Levels 1 ~ 10 |
-| Language | Switch between 中文 and English |
+| Language | Switch between 简体中文, 繁體中文, English, 日本語 |
 | Mouse Follow | Pet follows the cursor when enabled |
 | Always on Top | Pet stays above all other windows |
 | Launch on Startup | Register/remove Windows autostart entry |
@@ -151,8 +151,10 @@ Desktop-Hachimi/
 ├── compat/                  <- Platform helpers (autostart, DPI, trash)
 ├── ico/                     <- UI and window icons
 ├── Language/                <- Language packs
-│   ├── zh.json              <- Chinese strings
-│   └── en.json              <- English strings
+│   ├── zh_CN.json           <- Simplified Chinese strings
+│   ├── zh_TW.json           <- Traditional Chinese strings
+│   ├── en_US.json           <- English strings
+│   └── ja_JP.json           <- Japanese strings
 ├── Music/                   <- Music folder (add your tracks here)
 └── Pets/
     └── Ameath/              <- Default pet folder
@@ -212,7 +214,7 @@ Key constants in `ui/theme.py`:
 | `mouse_follow` | Whether the pet follows the cursor |
 | `always_on_top` | Whether the window stays above all others |
 | `x` / `y` | Last saved window position |
-| `language` | UI language code |
+| `language` | UI language code — `"zh_CN"`, `"zh_TW"`, `"en_US"`, or `"ja_JP"` |
 
 ---
 
@@ -247,7 +249,7 @@ When `default_dir` is `"left"`: moving left does not flip the sprite; moving rig
 
 ## Future Plans
 
-- [x] Internationalization (Simplified Chinese, Traditional Chinese, American English, Japanese)
+- [x] Internationalization (Simplified Chinese, Traditional Chinese, English, Japanese)
 - [ ] LLM Agent
 - [ ] TTS Agent
 - [ ] Linux (GTK tray)

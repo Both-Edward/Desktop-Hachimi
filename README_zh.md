@@ -95,7 +95,7 @@ python main.py
 
 ### 🌐 语言切换
 
-通过右键菜单 → **切换语言** 子菜单，随时在**中文**和 **English** 之间切换。所选语言会保存至 `config.json`，下次启动自动恢复。语言文件存放于 `Language/` 文件夹（`zh_CN.json` / `en.json`）。
+通过右键菜单 → **切换语言** 子菜单，随时在**简体中文**、**繁體中文**、**English**、**日本語** 之间切换。所选语言会保存至 `config.json`，下次启动自动恢复。语言文件存放于 `Language/` 文件夹（`zh_CN.json` / `zh_TW.json` / `en_US.json` / `ja_JP.json`）。
 
 ### 🖥️ 显示
 
@@ -122,7 +122,7 @@ python main.py
 | 桌宠大小 | x0.1 ~ x2.0，步进 0.1 |
 | 透明度 | 10% ~ 100%，步进 10% |
 | 速度 | 1 ~ 10 档 |
-| 切换语言 | 在中文和 English 之间切换 |
+| 切换语言 | 在简体中文、繁體中文、English、日本語 之间切换 |
 | 鼠标跟随 | 开启后桌宠跟随鼠标移动 |
 | 最上层显示 | 桌宠显示在所有窗口最前 |
 | 开机自启动 | 注册或移除 Windows 自启动项 |
@@ -151,8 +151,10 @@ Desktop-Hachimi/
 ├── compat/                  <- 平台适配（自启动、DPI、回收站）
 ├── ico/                     <- UI 及窗口图标
 ├── Language/                <- 语言包文件夹
-│   ├── zh_CN.json              <- 中文字符串
-│   └── en_US.json              <- 英文字符串
+│   ├── zh_CN.json           <- 简体中文字符串
+│   ├── zh_TW.json           <- 繁体中文字符串
+│   ├── en_US.json           <- 英文字符串
+│   └── ja_JP.json           <- 日文字符串
 ├── Music/                   <- 音乐文件夹（在此添加曲目）
 └── Pets/
     └── Ameath/              <- 默认桌宠文件夹
@@ -212,7 +214,7 @@ Desktop-Hachimi/
 | `mouse_follow` | 是否开启鼠标跟随 |
 | `always_on_top` | 是否始终置顶 |
 | `x` / `y` | 上次保存的窗口位置 |
-| `language` | 界面语言代码 |
+| `language` | 界面语言代码 —— `"zh_CN"`、`"zh_TW"`、`"en_US"` 或 `"ja_JP"` |
 
 ---
 
@@ -247,7 +249,7 @@ Desktop-Hachimi/
 
 ## 未来适配计划
 
-- [x] 国际化（简体中文、繁体中文、美式英语、日语）
+- [x] 国际化（简体中文、繁体中文、英文、日文）
 - [ ] LLM Agent
 - [ ] TTS Agent
 - [ ] Linux (GTK tray)
