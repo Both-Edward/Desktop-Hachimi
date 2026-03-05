@@ -66,7 +66,7 @@ When enabled, the pet chases your cursor around the screen. As the cursor approa
 
 ### 🌐 Language
 
-Switch between **Simplified Chinese (简体中文)**, **Traditional Chinese (繁體中文)**, **English**, and **Japanese (日本語)** at any time via the right-click menu. The selected language is saved and restored on next launch.
+Switch between **Simplified Chinese (简体中文)**, **Traditional Chinese (繁體中文)**, **English**, **Japanese (日本語)**, **Korean (한국어)**, and **French (Français)** at any time via the right-click menu. The selected language is saved and restored on next launch.
 
 ### 🖥️ Display
 
@@ -84,7 +84,7 @@ Switch between **Simplified Chinese (简体中文)**, **Traditional Chinese (繁
 
 ## Future Plans
 
-- [x] Internationalization (Simplified Chinese, Traditional Chinese, English, Japanese)
+- [x] Internationalization (Simplified Chinese, Traditional Chinese, English, Japanese, Korean, French)
 - [ ] LLM Agent
 - [ ] TTS Agent
 - [ ] Linux (GTK tray)

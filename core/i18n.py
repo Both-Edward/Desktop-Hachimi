@@ -24,6 +24,8 @@ AVAILABLE_LANGS = {
     "zh_TW": "繁體中文",
     "en_US": "English",
     "ja_JP": "日本語",
+    "ko_KR": "한국어",
+    "fr_FR": "Français",
 }
 
 
