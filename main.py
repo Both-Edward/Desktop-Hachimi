@@ -1,5 +1,5 @@
 """
-Desktop Hachimi – main entry point v1.2.2
+Desktop Hachimi – main entry point v1.2.3
 Refactored: frontend/backend separation for Windows / Linux (KDE) / macOS support.
   core/            – pure logic (config, gif loading, pet data)
   compat/          – OS-specific helpers (autostart, DPI awareness, trash)
