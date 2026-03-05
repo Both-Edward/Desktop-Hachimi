@@ -1,255 +1,90 @@
-# Choose Language
+# 选择语言
 
-**Read this in other languages: [English](README.md), [简体中文](README_zh.md).**
+**其他语言版本: [English](README_en.md), [简体中文](README.md).**
 
 ---
 
-# Desktop Hachimi - Smart Desktop Pet Companion 🐾
+# Desktop Hachimi - 智能桌宠伴侣 🐾
 
 <div align="center">
     <img src="/ico/Desktop Hachimi ico.ico" width="150" height="150" />
 </div>
 
-Desktop Hachimi is a feature-rich desktop pet application that adds vibrancy and fun to your Windows desktop. This adorable digital companion moves freely on your desktop, responds to your interactions, plays music alongside you, and brings life to your digital workspace.
+Desktop Hachimi 是一个功能丰富的桌面宠物应用程序，为您的 Windows 桌面增添活力和趣味。这个可爱的数字伙伴会在您的桌面上自由活动，响应您的互动，陪您一起听音乐，为您的数字工作空间带来生气。
 
 ---
 
-## Install Dependencies
+## 功能介绍
 
-```bash
-pip install -r requirements.txt
-```
+### 🐾 桌宠状态
 
-Full dependency list:
+桌宠会在四种状态之间自动切换，也会响应用户操作：
 
-```
-Pillow >= 10.0.0
-pystray >= 0.19.4
-screeninfo >= 0.8.1
-numpy >= 1.24.0
-pygame >= 2.0.0
-send2trash >= 1.8.2
-```
+| 状态 | 说明 |
+|------|------|
+| **动感** | 活泼动画 —— 启动时、播放音乐时、鼠标靠近时触发 |
+| **非移动（Idle）** | 静止动画 —— 桌宠停在原地时播放 |
+| **移动（Move）** | 行走动画 —— 桌宠在屏幕上自由游走 |
+| **拖拽（Drag）** | 拖拽动画 —— 用鼠标拖动桌宠时播放 |
 
-> **Notice**: Python 3.8+ required
+状态每 5 秒根据可配置的权重随机切换一次。
 
----
+### 🎵 音乐联动模式
 
-## Run
+内置音乐播放器与桌宠行为直接挂钩：
 
-```bash
-python main.py
-```
+- 歌曲**开始播放**时，桌宠立即进入**动感**状态，并在整首歌播放期间保持该状态。
+- 歌曲**停止或暂停**时，桌宠解除锁定，根据配置的权重随机切换到其他状态。
+- 音乐锁定期间，所有其他状态切换逻辑均不会打断动感状态。
 
----
+### 🎵 音乐播放器
 
-## Features
+右键点击桌宠 → **音乐播放器**。
 
-### 🐾 Pet States
+- 支持格式：MP3、WAV、OGG、FLAC、AAC、M4A、WMA
+- 播放模式：循环全部 / 单曲循环 / 顺序播放（不循环）
+- 控制按钮：上一首、播放/暂停、下一首
+- 可拖动进度条，显示当前播放时间
+- 双击曲目可直接跳转播放
+- 从电脑任意位置添加歌曲
+- 删除曲目（移至回收站）
 
-The pet switches between four states automatically and in response to user actions:
+### 🖱️ 鼠标跟随
 
-| State | Description |
-|-------|-------------|
-| **Dynamic** | Lively animation — triggered on launch, by music playback, or by mouse proximity |
-| **Idle** | Resting animation — plays when the pet is stationary |
-| **Move** | Walking animation — pet roams freely around the screen |
-| **Drag** | Drag animation — plays while you drag the pet with the mouse |
+开启后，桌宠会追随光标在屏幕上移动。光标靠近时切换为动感状态；光标远离后，桌宠恢复移动状态继续游走。
 
-State transitions happen on a 5-second timer according to configurable weights (see `weights.json`).
+### 🎨 桌宠自定义
 
-### 🎵 Music-Reactive Mode
+- **切换桌宠** —— 从所有已安装的桌宠中选择
+- **创建桌宠** —— 内置向导，用自己的 GIF 和图标组装新桌宠
+- **删除桌宠** —— 从菜单将桌宠移至回收站
+- **桌宠大小** —— x0.1 ~ x2.0，步进 0.1
+- **透明度** —— 10% ~ 100%，步进 10%
+- **速度** —— 10 档可调
+- **状态权重** —— 通过权重编辑器调整各状态的出现概率
+- **运动方向反转** —— 为每个移动变体单独配置向非默认方向运动时是否水平翻转
 
-The built-in music player is linked directly to the pet's behavior:
+### 🌐 语言切换
 
-- When a song **starts playing**, the pet immediately enters the **Dynamic** state and stays there for the entire duration of the track.
-- When the song **stops or is paused**, the pet is released and randomly transitions to one of its other states based on the configured weights.
-- This lock is respected by all other state systems — the autonomous timer, mouse-follow logic, and movement triggers will not override Dynamic state while music is playing.
+通过右键菜单随时在**简体中文**、**繁體中文**、**English**、**日本語** 之间切换。所选语言会自动保存，下次启动恢复。
 
-### 🎵 Music Player
+### 🖥️ 显示
 
-Open via right-click menu on the pet → **Music Player**.
+- **最上层显示** —— 桌宠始终显示在所有窗口之上
+- **多显示器支持** —— 桌宠会被限制在当前所在屏幕的范围内
+- **位置记忆** —— 窗口位置在两次运行之间自动保存与恢复
 
-- Supports MP3, WAV, OGG, FLAC, AAC, M4A, WMA
-- Playback modes: Loop All / Loop One / Play Once
-- Controls: Previous, Play/Pause, Next
-- Draggable progress bar with time display
-- Double-click a track in the playlist to jump to it
-- Add tracks from anywhere on your computer (copied into the `Music/` folder)
-- Delete tracks to the recycle bin
+### ⚙️ 系统
 
-### 🖱️ Mouse Follow
-
-When enabled, the pet chases your cursor around the screen. As the cursor approaches, the pet switches to the Dynamic state; as it moves away, the pet transitions back to moving.
-
-### 🎨 Pet Customization
-
-- **Switch Pet** — choose from all pets in the `Pets/` folder
-- **Create Pet** — built-in wizard to assemble a new pet from your own GIFs and icons
-- **Delete Pet** — move a pet folder to the recycle bin from the menu
-- **Size** — scale from x0.1 to x2.0 in steps of 0.1
-- **Opacity** — 10% to 100% in steps of 10%
-- **Speed** — 10 levels
-- **State Weights** — adjust how often each state appears via the weight editor
-- **Motion Flip** — configure per-move-variant whether the sprite flips horizontally
-
-### 🌐 Language
-
-Switch between **Simplified Chinese (简体中文)**, **Traditional Chinese (繁體中文)**, **English**, and **Japanese (日本語)** at any time via the right-click menu → **Language** submenu. The selected language is saved to `config.json` and restored on next launch. Language files live in the `Language/` folder (`zh_CN.json` / `zh_TW.json` / `en_US.json` / `ja_JP.json`).
-
-### 🖥️ Display
-
-- **Always on Top** — keep the pet above all other windows
-- **Multi-monitor support** — the pet stays within the bounds of whichever screen it is on
-- **Position memory** — window position is saved and restored between sessions
-
-### ⚙️ System
-
-- **Autostart** — launch with Windows
-- **System tray icon** — shows the app in the system tray; double-click to focus the pet
-- **Check for updates** — built into the About dialog
+- **开机自启动** —— 随 Windows 启动
+- **系统托盘图标** —— 在任务栏托盘显示图标；双击可将桌宠窗口置顶
+- **检查更新** —— 内置于"关于"对话框
 
 ---
 
-## Right-Click Context Menu
+## 未来适配计划
 
-Right-clicking the **pet sprite** opens the full control menu. The system tray icon only has a minimal **Exit** item — all features are accessible from the pet's right-click menu.
-
-| Menu Item | Function |
-|-----------|----------|
-| Switch Pet | Choose from all pets in `Pets/` |
-| Delete Pet | Move a pet folder to the recycle bin |
-| Pet Size | x0.1 ~ x2.0, step 0.1 |
-| Opacity | 10% ~ 100%, step 10% |
-| Speed | Levels 1 ~ 10 |
-| Language | Switch between 简体中文, 繁體中文, English, 日本語 |
-| Mouse Follow | Pet follows the cursor when enabled |
-| Always on Top | Pet stays above all other windows |
-| Launch on Startup | Register/remove Windows autostart entry |
-| Music Player | Open the music player window |
-| Edit State Weights | Adjust per-state probability weights |
-| Edit Motion Flip | Configure sprite flip per move variant |
-| Create Pet | Open the pet creation wizard |
-| About | Software info and update check |
-| Exit | Close the program |
-
----
-
-## Directory Structure
-
-```
-Desktop-Hachimi/
-├── main.py                  <- Application entry point
-├── requirements.txt
-├── config.json              <- Auto-generated user settings
-├── core/                    <- Backend: config, GIF loader, pet data
-│   └── i18n.py              <- Language loader (reads Language/*.json)
-├── ui/                      <- Frontend: all tkinter UI components
-│   ├── theme.py             <- ★ Centralized UI color palette & styles
-│   ├── music_player.py      <- Music player dialog
-│   └── helpers.py           <- Shared UI utilities
-├── compat/                  <- Platform helpers (autostart, DPI, trash)
-├── ico/                     <- UI and window icons
-├── Language/                <- Language packs
-│   ├── zh_CN.json           <- Simplified Chinese strings
-│   ├── zh_TW.json           <- Traditional Chinese strings
-│   ├── en_US.json           <- English strings
-│   └── ja_JP.json           <- Japanese strings
-├── Music/                   <- Music folder (add your tracks here)
-└── Pets/
-    └── Ameath/              <- Default pet folder
-        ├── Ameath.ico
-        ├── Ameath.gif       <- Dynamic state animation
-        ├── drag.gif         <- Drag state animation
-        ├── idle.gif         <- Idle state (single file)
-        │   or idle1.gif, idle2.gif ...
-        ├── move.gif         <- Move state (single file)
-        │   or move1.gif, move2.gif ...
-        ├── weights.json     <- State weights
-        └── flip.json        <- Motion flip config (optional)
-```
-
----
-
-## UI Theming
-
-All UI colors, fonts, and button styles are centralized in **`ui/theme.py`**. To change the visual style of all dialogs and the music player at once, simply edit the constants in that file — no hunting through individual dialog classes needed.
-
-Key constants in `ui/theme.py`:
-
-| Constant | Purpose |
-|----------|---------|
-| `BG` | Main dialog background |
-| `CARD_BG` | Inner card / panel background |
-| `HEADER_BG` | Header stripe color |
-| `PINK` | Accent color (buttons, highlights) |
-| `TEXT` | Primary text color |
-| `BTN_SAVE` | Style dict for save/confirm buttons |
-| `BTN_CLOSE` | Style dict for close/cancel buttons |
-
----
-
-## config.json Fields
-
-```json
-{
-  "pet":           "Ameath",
-  "scale":         1.0,
-  "opacity":       1.0,
-  "speed":         3,
-  "mouse_follow":  false,
-  "always_on_top": true,
-  "x":             100,
-  "y":             100,
-  "language":      "zh_CN"
-}
-```
-
-| Field | Description |
-|-------|-------------|
-| `pet` | Name of the active pet (must match a folder in `Pets/`) |
-| `scale` | Sprite scale multiplier (0.1 – 2.0) |
-| `opacity` | Window opacity (0.1 – 1.0) |
-| `speed` | Movement speed (1 – 10) |
-| `mouse_follow` | Whether the pet follows the cursor |
-| `always_on_top` | Whether the window stays above all others |
-| `x` / `y` | Last saved window position |
-| `language` | UI language code — `"zh_CN"`, `"zh_TW"`, `"en_US"`, or `"ja_JP"` |
-
----
-
-## weights.json Format
-
-```json
-{
-  "dynamic_weight": 3,
-  "idle_weight": [2],
-  "move_weight": [1]
-}
-```
-
-If there are multiple idle/move GIFs, the weight array length must match the number of files.
-
----
-
-## flip.json Format
-
-```json
-{
-  "move": {
-    "enabled": true,
-    "default_dir": "left"
-  }
-}
-```
-
-When `default_dir` is `"left"`: moving left does not flip the sprite; moving right flips it.
-
----
-
-## Future Plans
-
-- [x] Internationalization (Simplified Chinese, Traditional Chinese, English, Japanese)
+- [x] 国际化（简体中文、繁体中文、英文、日文）
 - [ ] LLM Agent
 - [ ] TTS Agent
 - [ ] Linux (GTK tray)
