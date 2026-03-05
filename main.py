@@ -1,5 +1,5 @@
 """
-Desktop Hachimi – main entry point v1.2.1
+Desktop Hachimi – main entry point v1.2.2
 Refactored: frontend/backend separation for Windows / Linux (KDE) / macOS support.
   core/            – pure logic (config, gif loading, pet data)
   compat/          – OS-specific helpers (autostart, DPI awareness, trash)
@@ -54,7 +54,7 @@ STATE_MOVE    = "move"
 STATE_DRAG    = "drag"
 
 # ── GitHub update helpers ─────────────────────────────────────────────────────
-GITHUB_OWNER      = "Edward-EH-Holmes"
+GITHUB_OWNER      = "Both-Edward"
 GITHUB_REPO       = "Desktop-Hachimi"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASES   = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"

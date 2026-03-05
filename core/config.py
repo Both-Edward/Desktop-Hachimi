@@ -6,12 +6,12 @@ import os
 import json
 
 # ── App Info ──────────────────────────────────────────────────────────────────
-VERSION      = "1.2.1"
+VERSION      = "1.2.2"
 APP_NAME     = "Desktop Hachimi"
 AUTHOR       = "Edward"
 AUTHOR_EMAIL = "lingzhanye4@gmail.com"
-GITHUB_URL   = "https://github.com/Edward-EH-Holmes/Desktop-Hachimi"
-GITHUB_RELEASES = "https://github.com/Edward-EH-Holmes/Desktop-Hachimi/releases"
+GITHUB_URL   = "https://github.com/Both-Edward/Desktop-Hachimi"
+GITHUB_RELEASES = "https://github.com/Both-Edward/Desktop-Hachimi/releases"
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
